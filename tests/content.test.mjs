@@ -472,8 +472,10 @@ test("built page resolves canonical and social image metadata tokens", async () 
     new URL("../dist/index.html", import.meta.url),
     "utf8",
   );
-  const canonicalUrl =
-    "https://local.github.io/ai-xmp-tagger/";
+  const repository =
+    process.env.GITHUB_REPOSITORY || "local/ai-xmp-tagger";
+  const [owner, name] = repository.split("/");
+  const canonicalUrl = `https://${owner}.github.io/${name}/`;
 
   assert.doesNotMatch(html, /@@[A-Z0-9_]+@@/);
   assert.ok(
@@ -486,6 +488,17 @@ test("built page resolves canonical and social image metadata tokens", async () 
     html.includes(
       `<meta property="og:image" content="${canonicalUrl}images/social-card.png">`,
     ),
+  );
+});
+
+test("package scripts can verify the simulated Pages repository locally", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(
+    packageJson.scripts["test:ci-repository"],
+    "GITHUB_REPOSITORY=example-owner/ai-xmp-tagger npm test",
   );
 });
 

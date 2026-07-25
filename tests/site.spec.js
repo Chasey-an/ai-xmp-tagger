@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 const heading = "AI XMP Tagger";
+const repository =
+  process.env.GITHUB_REPOSITORY || "local/ai-xmp-tagger";
 
 test("320px layout keeps the primary download path visible without overflow", async ({
   page,
@@ -114,8 +116,9 @@ test("content and release links work when JavaScript is disabled", async ({
     .getByRole("link", { name: "下载 Windows 版（64 位）" })
     .first()
     .getAttribute("href");
-  expect(windowsHref).toMatch(
-    /^https:\/\/github\.com\/local\/ai-xmp-tagger\/releases\/download\//,
+  expect(windowsHref).toBe(
+    `https://github.com/${repository}/releases/download/` +
+      "v0.1.0/AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe",
   );
 
   await context.close();

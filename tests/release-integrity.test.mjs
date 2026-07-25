@@ -214,37 +214,63 @@ test("release build helpers create canonical URLs, decimal MB, and strict tokens
   );
 });
 
-test("development server resolves release tokens using the local fallback", async () => {
+test("development server resolves exact URLs for fallback and explicit repositories", async () => {
   const previousRepository = process.env.GITHUB_REPOSITORY;
-  delete process.env.GITHUB_REPOSITORY;
-  let server;
 
   try {
-    server = await createServer({
-      configFile: path.join(projectDirectory, "vite.config.js"),
-      root: projectDirectory,
-      logLevel: "silent",
-      server: {
-        host: "127.0.0.1",
-        port: 0,
+    for (const testCase of [
+      {
+        repository: undefined,
+        expectedRepository: "local/ai-xmp-tagger",
+        expectedCanonicalUrl: "https://local.github.io/ai-xmp-tagger/",
       },
-    });
-    await server.listen();
-    const address = server.httpServer.address();
-    assert.ok(address && typeof address === "object");
+      {
+        repository: "example-owner/ai-xmp-tagger",
+        expectedRepository: "example-owner/ai-xmp-tagger",
+        expectedCanonicalUrl:
+          "https://example-owner.github.io/ai-xmp-tagger/",
+      },
+    ]) {
+      if (testCase.repository === undefined) {
+        delete process.env.GITHUB_REPOSITORY;
+      } else {
+        process.env.GITHUB_REPOSITORY = testCase.repository;
+      }
 
-    const response = await fetch(`http://127.0.0.1:${address.port}/`);
-    assert.equal(response.status, 200);
-    const html = await response.text();
+      let server;
+      try {
+        server = await createServer({
+          configFile: path.join(projectDirectory, "vite.config.js"),
+          root: projectDirectory,
+          logLevel: "silent",
+          server: {
+            host: "127.0.0.1",
+            port: 0,
+          },
+        });
+        await server.listen();
+        const address = server.httpServer.address();
+        assert.ok(address && typeof address === "object");
 
-    assert.doesNotMatch(html, /@@[A-Z0-9_]+@@/);
-    assert.ok(
-      html.includes(
-        "https://github.com/local/ai-xmp-tagger/releases/download/v0.1.0/",
-      ),
-    );
+        const response = await fetch(`http://127.0.0.1:${address.port}/`);
+        assert.equal(response.status, 200);
+        const html = await response.text();
+        const windowsUrl =
+          `https://github.com/${testCase.expectedRepository}/releases/download/` +
+          "v0.1.0/AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe";
+
+        assert.doesNotMatch(html, /@@[A-Z0-9_]+@@/);
+        assert.ok(
+          html.includes(
+            `<link rel="canonical" href="${testCase.expectedCanonicalUrl}">`,
+          ),
+        );
+        assert.ok(html.includes(`href="${windowsUrl}"`));
+      } finally {
+        await server?.close();
+      }
+    }
   } finally {
-    await server?.close();
     if (previousRepository === undefined) {
       delete process.env.GITHUB_REPOSITORY;
     } else {
