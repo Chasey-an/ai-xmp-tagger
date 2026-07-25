@@ -613,3 +613,162 @@ test("favicon provides the standalone XMP mark", async () => {
   assert.match(favicon, /viewBox="0 0 64 64"/);
   assert.match(favicon, />XMP</);
 });
+
+test("README explains the public beta repository, privacy, preview, and provenance contracts", async () => {
+  const readme = await readFile(
+    new URL("../README.md", import.meta.url),
+    "utf8",
+  );
+
+  for (const requiredCopy of [
+    "公开测试版（public beta）的网站与下载仓库",
+    "GitHub Pages",
+    "GitHub Releases",
+    "桌面应用源码不在本仓库",
+    "不会接收图片、路径或用户数据",
+    "npm run dev",
+    "npm test",
+    "非 Amazon 官方产品",
+    "经过清理的中性测试素材",
+    "Preview",
+    "ExifTool",
+  ]) {
+    assert.ok(
+      readme.includes(requiredCopy),
+      `README must include: ${requiredCopy}`,
+    );
+  }
+  assert.match(readme, /(?:npm ci|npm install)/);
+  assert.match(
+    readme,
+    /Preview[\s\S]*ExifTool[\s\S]*(?:如实|明确)[\s\S]*(?:说明|标注)/,
+  );
+
+  try {
+    await stat(new URL("../LICENSE", import.meta.url));
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+    assert.doesNotMatch(
+      readme,
+      /\b(?:MIT|Apache|GPL|BSD)\b|开源许可|采用[^。\n]*许可证/,
+    );
+  }
+});
+
+test("release guide covers checksums, unsigned installers, safe OS guidance, and Windows limits", async () => {
+  const releaseGuide = await readFile(
+    new URL("../RELEASE.md", import.meta.url),
+    "utf8",
+  );
+
+  for (const requiredCopy of [
+    "SHA256SUMS.txt",
+    "安装包暂未签名",
+    "Apple Gatekeeper",
+    "Windows SmartScreen",
+    "Windows 包只完成静态架构和资源验证",
+    "尚未在真实 Windows",
+  ]) {
+    assert.ok(
+      releaseGuide.includes(requiredCopy),
+      `RELEASE.md must include: ${requiredCopy}`,
+    );
+  }
+  assert.match(
+    releaseGuide,
+    /不要[\s\S]*(?:关闭|停用)[\s\S]*Gatekeeper[\s\S]*SmartScreen/,
+  );
+});
+
+test("release guide preserves the required private-to-public release order", async () => {
+  const releaseGuide = await readFile(
+    new URL("../RELEASE.md", import.meta.url),
+    "utf8",
+  );
+  const positions = [
+    /私有仓库[\s\S]{0,120}(?:测试|npm test)[\s\S]{0,120}(?:类型检查|typecheck)[\s\S]{0,160}(?:安装包|打包)[\s\S]{0,120}(?:Mac|macOS)[\s\S]{0,80}(?:冒烟|smoke)/i,
+    /核对[\s\S]{0,120}文件名[\s\S]{0,120}(?:字节数|bytes)[\s\S]{0,120}(?:SHA-256|哈希)/i,
+    /预发布[\s\S]{0,160}(?:3 个|三个)[\s\S]{0,120}安装包[\s\S]{0,120}SHA256SUMS\.txt/i,
+    /发布 GitHub Release[\s\S]{0,160}(?:GitHub Pages|Pages)/i,
+    /检查[\s\S]{0,120}(?:Release 资产|发布资产|assets)[\s\S]{0,160}(?:私有源码|桌面应用源码)/i,
+  ].map((pattern) => {
+    const match = pattern.exec(releaseGuide);
+    assert.ok(match, `RELEASE.md must match ordered release step: ${pattern}`);
+    return match.index;
+  });
+
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+});
+
+test("Pages workflow is manual-only and uses the current official action majors", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/pages.yml", import.meta.url),
+    "utf8",
+  );
+  const triggerBlock = workflow.match(/^on:\s*\n([\s\S]*?)^permissions:/m);
+
+  assert.ok(triggerBlock, "workflow must define triggers before permissions");
+  assert.equal(triggerBlock[1].trim(), "workflow_dispatch:");
+  assert.doesNotMatch(triggerBlock[1], /^\s*push:/m);
+  assert.match(workflow, /^name: Test and deploy GitHub Pages$/m);
+
+  for (const action of [
+    "actions/checkout@v7",
+    "actions/setup-node@v7",
+    "actions/configure-pages@v5",
+    "actions/upload-pages-artifact@v4",
+    "actions/deploy-pages@v4",
+  ]) {
+    assert.equal(
+      workflow.match(new RegExp(action.replace("/", "\\/"), "g"))?.length,
+      1,
+      `workflow must use ${action} exactly once`,
+    );
+  }
+});
+
+test("Pages workflow builds, verifies, uploads dist, and deploys with least privilege", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/pages.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    workflow,
+    /^permissions:\n  contents: read\n  pages: write\n  id-token: write$/m,
+  );
+  assert.match(
+    workflow,
+    /^concurrency:\n  group: pages\n  cancel-in-progress: false$/m,
+  );
+  assert.match(workflow, /^\s{2}build:\n\s{4}runs-on: ubuntu-latest$/m);
+  assert.match(workflow, /node-version: 24/);
+  assert.match(workflow, /cache: npm/);
+  assert.match(workflow, /run: npm ci/);
+  assert.match(
+    workflow,
+    /run: npx playwright install --with-deps chromium/,
+  );
+  assert.match(
+    workflow,
+    /run: npm test\n\s+env:\n\s+GITHUB_REPOSITORY: \$\{\{ github\.repository \}\}/,
+  );
+  assert.match(
+    workflow,
+    /uses: actions\/upload-pages-artifact@v4\n\s+with:\n\s+path: dist/,
+  );
+  assert.match(
+    workflow,
+    /^\s{2}deploy:\n\s{4}needs: build\n\s{4}runs-on: ubuntu-latest$/m,
+  );
+  assert.match(
+    workflow,
+    /environment:\n\s+name: github-pages\n\s+url: \$\{\{ steps\.deployment\.outputs\.page_url \}\}/,
+  );
+  assert.match(
+    workflow,
+    /id: deployment\n\s+uses: actions\/deploy-pages@v4/,
+  );
+});
