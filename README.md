@@ -17,13 +17,6 @@ npm ci
 npm run dev
 ```
 
-如果没有可用的锁文件，也可以安装依赖后预览：
-
-```bash
-npm install
-npm run dev
-```
-
 提交前运行完整验证：
 
 ```bash

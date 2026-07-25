@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import {
   mkdir,
   mkdtemp,
@@ -277,4 +278,62 @@ test("development server resolves exact URLs for fallback and explicit repositor
       process.env.GITHUB_REPOSITORY = previousRepository;
     }
   }
+});
+
+test("portable CI repository launcher uses current executables and guards recursion", async () => {
+  const {
+    CI_REPOSITORY_TEST_FLAG,
+    createCiRepositoryTestInvocation,
+    runCiRepositoryTests,
+  } = await import("../scripts/test-ci-repository.mjs");
+  const baseEnvironment = { KEEP_ME: "yes" };
+  const invocation = createCiRepositoryTestInvocation({
+    execPath: "/current/runtime/node",
+    npmExecPath: "/current/npm/npm-cli.js",
+    env: baseEnvironment,
+  });
+
+  assert.equal(invocation.command, "/current/runtime/node");
+  assert.deepEqual(invocation.args, ["/current/npm/npm-cli.js", "test"]);
+  assert.equal(invocation.options.stdio, "inherit");
+  assert.deepEqual(invocation.options.env, {
+    KEEP_ME: "yes",
+    CI: "true",
+    GITHUB_REPOSITORY: "example-owner/ai-xmp-tagger",
+    [CI_REPOSITORY_TEST_FLAG]: "1",
+  });
+  assert.deepEqual(baseEnvironment, { KEEP_ME: "yes" });
+
+  const calls = [];
+  const child = new EventEmitter();
+  const runPromise = runCiRepositoryTests({
+    execPath: "/current/runtime/node",
+    npmExecPath: "/current/npm/npm-cli.js",
+    env: baseEnvironment,
+    spawnImpl(command, args, options) {
+      calls.push({ command, args, options });
+      queueMicrotask(() => child.emit("exit", 0, null));
+      return child;
+    },
+  });
+  assert.equal(await runPromise, 0);
+  assert.deepEqual(calls, [invocation]);
+
+  assert.throws(
+    () =>
+      createCiRepositoryTestInvocation({
+        execPath: "/current/runtime/node",
+        npmExecPath: "/current/npm/npm-cli.js",
+        env: { [CI_REPOSITORY_TEST_FLAG]: "1" },
+      }),
+    /recursion/i,
+  );
+  assert.throws(
+    () =>
+      createCiRepositoryTestInvocation({
+        execPath: "/current/runtime/node",
+        env: {},
+      }),
+    /npm executable/i,
+  );
 });

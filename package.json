@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "preview": "vite preview",
     "capture:social": "node scripts/capture-social-card.mjs",
     "capture:social:check": "node scripts/capture-social-card.mjs --check",
     "test:content": "node --test tests/content.test.mjs",
     "test:release": "node --test tests/release-integrity.test.mjs",
-    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e": "playwright test",
     "test": "npm run build && npm run capture:social:check && npm run test:content && npm run test:release && npm run test:e2e",
-    "test:ci-repository": "GITHUB_REPOSITORY=example-owner/ai-xmp-tagger npm test"
+    "test:ci-repository": "node scripts/test-ci-repository.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

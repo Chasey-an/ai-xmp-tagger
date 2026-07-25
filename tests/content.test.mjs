@@ -491,15 +491,29 @@ test("built page resolves canonical and social image metadata tokens", async () 
   );
 });
 
-test("package scripts can verify the simulated Pages repository locally", async () => {
+test("package scripts build and serve dist for browser tests", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
-
-  assert.equal(
-    packageJson.scripts["test:ci-repository"],
-    "GITHUB_REPOSITORY=example-owner/ai-xmp-tagger npm test",
+  const { default: playwrightConfig } = await import(
+    "../playwright.config.js"
   );
+
+  assert.equal(packageJson.scripts.preview, "vite preview");
+  assert.equal(packageJson.scripts["test:e2e"], "playwright test");
+  assert.doesNotMatch(packageJson.scripts["test:e2e"], /pass-with-no-tests/);
+  assert.match(
+    packageJson.scripts["test:ci-repository"],
+    /test-ci-repository\.mjs/,
+  );
+  assert.doesNotMatch(
+    packageJson.scripts["test:ci-repository"],
+    /(?:CI|GITHUB_REPOSITORY)=/,
+  );
+  assert.match(playwrightConfig.webServer.command, /npm run build/);
+  assert.match(playwrightConfig.webServer.command, /npm run preview/);
+  assert.doesNotMatch(playwrightConfig.webServer.command, /npm run dev/);
+  assert.equal(playwrightConfig.webServer.reuseExistingServer, false);
 });
 
 test("social card source is local-only and contains the approved copy", async () => {
@@ -651,7 +665,8 @@ test("README explains the public beta repository, privacy, preview, and provenan
       `README must include: ${requiredCopy}`,
     );
   }
-  assert.match(readme, /(?:npm ci|npm install)/);
+  assert.match(readme, /npm ci/);
+  assert.doesNotMatch(readme, /npm install(?:\s|$)/);
   assert.match(
     readme,
     /Preview[\s\S]*ExifTool[\s\S]*(?:如实|明确)[\s\S]*(?:说明|标注)/,
@@ -683,6 +698,9 @@ test("release guide covers checksums, unsigned installers, safe OS guidance, and
     "Windows SmartScreen",
     "Windows 包只完成静态架构和资源验证",
     "尚未在真实 Windows",
+    "shasum -a 256 AI-XMP-Tagger-0.1.0-macOS-arm64.dmg",
+    "shasum -a 256 AI-XMP-Tagger-0.1.0-macOS-x64.dmg",
+    "Get-FileHash AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe -Algorithm SHA256",
   ]) {
     assert.ok(
       releaseGuide.includes(requiredCopy),
@@ -715,7 +733,7 @@ test("release guide preserves the required private-to-public release order", asy
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
 });
 
-test("Pages workflow is manual-only and uses the current official action majors", async () => {
+test("Pages workflow is manual-only and pins current official actions by commit", async () => {
   const workflow = await readFile(
     new URL("../.github/workflows/pages.yml", import.meta.url),
     "utf8",
@@ -727,18 +745,46 @@ test("Pages workflow is manual-only and uses the current official action majors"
   assert.doesNotMatch(triggerBlock[1], /^\s*push:/m);
   assert.match(workflow, /^name: Test and deploy GitHub Pages$/m);
 
-  for (const action of [
-    "actions/checkout@v7",
-    "actions/setup-node@v7",
-    "actions/configure-pages@v5",
-    "actions/upload-pages-artifact@v4",
-    "actions/deploy-pages@v4",
+  for (const [action, commit, version] of [
+    [
+      "actions/checkout",
+      "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "v7.0.1",
+    ],
+    [
+      "actions/setup-node",
+      "820762786026740c76f36085b0efc47a31fe5020",
+      "v7.0.0",
+    ],
+    [
+      "actions/configure-pages",
+      "45bfe0192ca1faeb007ade9deae92b16b8254a0d",
+      "v6.0.0",
+    ],
+    [
+      "actions/upload-pages-artifact",
+      "fc324d3547104276b827a68afc52ff2a11cc49c9",
+      "v5.0.0",
+    ],
+    [
+      "actions/deploy-pages",
+      "cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
+      "v5.0.0",
+    ],
   ]) {
     assert.equal(
-      workflow.match(new RegExp(action.replace("/", "\\/"), "g"))?.length,
+      workflow.match(
+        new RegExp(
+          `${action.replace("/", "\\/")}@${commit} # ${version}`,
+          "g",
+        ),
+      )?.length,
       1,
-      `workflow must use ${action} exactly once`,
+      `workflow must pin ${action} ${version} exactly once`,
     );
+  }
+  for (const line of workflow.match(/^\s*uses: actions\/.+$/gm) ?? []) {
+    assert.match(line, /@[a-f0-9]{40} # v\d+\.\d+\.\d+$/);
   }
 });
 
@@ -748,15 +794,20 @@ test("Pages workflow builds, verifies, uploads dist, and deploys with least priv
     "utf8",
   );
 
-  assert.match(
-    workflow,
-    /^permissions:\n  contents: read\n  pages: write\n  id-token: write$/m,
-  );
+  assert.match(workflow, /^permissions: \{\}$/m);
   assert.match(
     workflow,
     /^concurrency:\n  group: pages\n  cancel-in-progress: false$/m,
   );
-  assert.match(workflow, /^\s{2}build:\n\s{4}runs-on: ubuntu-latest$/m);
+  assert.match(
+    workflow,
+    /^\s{2}build:\n\s{4}permissions:\n\s{6}contents: read\n\s{6}pages: read\n\s{4}runs-on: ubuntu-latest$/m,
+  );
+  const buildBlock = workflow.match(
+    /^\s{2}build:\n([\s\S]*?)(?=^\s{2}deploy:)/m,
+  )?.[1];
+  assert.ok(buildBlock);
+  assert.doesNotMatch(buildBlock, /pages: write|id-token: write/);
   assert.match(workflow, /node-version: 24/);
   assert.match(workflow, /cache: npm/);
   assert.match(workflow, /run: npm ci/);
@@ -770,11 +821,11 @@ test("Pages workflow builds, verifies, uploads dist, and deploys with least priv
   );
   assert.match(
     workflow,
-    /uses: actions\/upload-pages-artifact@v4\n\s+with:\n\s+path: dist/,
+    /uses: actions\/upload-pages-artifact@[a-f0-9]{40} # v5\.0\.0\n\s+with:\n\s+path: dist/,
   );
   assert.match(
     workflow,
-    /^\s{2}deploy:\n\s{4}needs: build\n\s{4}runs-on: ubuntu-latest$/m,
+    /^\s{2}deploy:\n\s{4}needs: build\n\s{4}if: github\.ref == 'refs\/heads\/main'\n\s{4}permissions:\n\s{6}contents: read\n\s{6}pages: write\n\s{6}id-token: write\n\s{4}runs-on: ubuntu-latest$/m,
   );
   assert.match(
     workflow,
@@ -782,6 +833,18 @@ test("Pages workflow builds, verifies, uploads dist, and deploys with least priv
   );
   assert.match(
     workflow,
-    /id: deployment\n\s+uses: actions\/deploy-pages@v4/,
+    /id: deployment\n\s+uses: actions\/deploy-pages@[a-f0-9]{40} # v5\.0\.0/,
   );
+});
+
+test("Dependabot checks pinned GitHub Actions every week", async () => {
+  const dependabot = await readFile(
+    new URL("../.github/dependabot.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(dependabot, /^version: 2$/m);
+  assert.match(dependabot, /package-ecosystem: "github-actions"/);
+  assert.match(dependabot, /directory: "\/"/);
+  assert.match(dependabot, /interval: "weekly"/);
 });

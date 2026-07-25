@@ -9,6 +9,23 @@
 - Windows 出现 Windows SmartScreen 提示时，只有在来源、文件名和 SHA-256 均匹配时，才通过系统的“更多信息”查看发布者与文件信息并决定是否继续。
 - 不要关闭或停用 Apple Gatekeeper 或 Windows SmartScreen，也不要要求用户降低系统安全设置。
 
+## 校验命令
+
+在 macOS 终端分别校验两个安装包：
+
+```bash
+shasum -a 256 AI-XMP-Tagger-0.1.0-macOS-arm64.dmg
+shasum -a 256 AI-XMP-Tagger-0.1.0-macOS-x64.dmg
+```
+
+在 Windows PowerShell 校验安装包：
+
+```powershell
+Get-FileHash AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe -Algorithm SHA256
+```
+
+将命令输出与 Release 中的 `SHA256SUMS.txt` 逐项核对；不一致时不要运行安装包。
+
 ## Windows 验证边界
 
 Windows 包只完成静态架构和资源验证。当前版本尚未在真实 Windows 设备或虚拟机中完成安装、启动和卸载验证；发布说明和网站不得暗示已完成这些测试。
