@@ -80,20 +80,25 @@ test("product walkthrough uses six native-size descriptive PNGs with intentional
     }
   }
 
-  const dimensions = await screenshots.evaluateAll((images) =>
-    images.map((image) => ({
-      complete: image.complete,
-      naturalWidth: image.naturalWidth,
-      naturalHeight: image.naturalHeight,
-    })),
-  );
-  expect(dimensions).toEqual(
-    Array.from({ length: 6 }, () => ({
-      complete: true,
-      naturalWidth: 1440,
-      naturalHeight: 900,
-    })),
-  );
+  for (let index = 0; index < 6; index += 1) {
+    const image = screenshots.nth(index);
+    if (index > 0) {
+      await image.scrollIntoViewIfNeeded();
+    }
+    await expect
+      .poll(() =>
+        image.evaluate((element) => ({
+          complete: element.complete,
+          naturalWidth: element.naturalWidth,
+          naturalHeight: element.naturalHeight,
+        })),
+      )
+      .toEqual({
+        complete: true,
+        naturalWidth: 1440,
+        naturalHeight: 900,
+      });
+  }
 });
 
 test("content and release links work when JavaScript is disabled", async ({
@@ -224,7 +229,8 @@ test("copy controls copy each checksum and show success feedback", async ({
       configurable: true,
       value: {
         writeText: async (value) => {
-          window.__copiedChecksum = value;
+          window.__copiedChecksums ??= [];
+          window.__copiedChecksums.push(value);
         },
       },
     });
@@ -237,13 +243,33 @@ test("copy controls copy each checksum and show success feedback", async ({
   await expect(buttons).toHaveCount(3);
   await page.locator(".checksums > summary").click();
 
-  const expected = (await hashes.first().textContent())?.trim();
-  await buttons.first().click();
-  await expect(buttons.first()).toHaveText("已复制");
-  await expect
-    .poll(() => page.evaluate(() => window.__copiedChecksum))
-    .toBe(expected);
-  await expect(buttons.first()).toHaveText("复制", { timeout: 2_400 });
+  const accessibleNames = [
+    "复制 Mac（Apple 芯片）SHA-256",
+    "复制 Mac（Intel）SHA-256",
+    "复制 Windows（64 位）SHA-256",
+  ];
+  for (let index = 0; index < 3; index += 1) {
+    const button = buttons.nth(index);
+    const expectedHash = (await hashes.nth(index).textContent())?.trim();
+
+    await expect(button).toHaveAccessibleName(accessibleNames[index]);
+    await button.click();
+    await expect(button).toHaveText("已复制");
+    await expect(button).toHaveAccessibleName(accessibleNames[index]);
+    await expect(
+      page.locator(".checksums .copy-status").nth(index),
+    ).toContainText("已复制");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (copiedIndex) => window.__copiedChecksums?.[copiedIndex],
+          index,
+        ),
+      )
+      .toBe(expectedHash);
+    await expect(button).toHaveText("复制", { timeout: 2_400 });
+    await expect(button).toHaveAccessibleName(accessibleNames[index]);
+  }
 });
 
 test("copy controls recover from Clipboard API failure without an unhandled error", async ({
@@ -265,8 +291,14 @@ test("copy controls recover from Clipboard API failure without an unhandled erro
 
   const button = page.locator(".checksums .copy-hash").first();
   await page.locator(".checksums > summary").click();
+  await expect(button).toHaveAccessibleName(
+    "复制 Mac（Apple 芯片）SHA-256",
+  );
   await button.click();
   await expect(button).toHaveText("复制");
+  await expect(button).toHaveAccessibleName(
+    "复制 Mac（Apple 芯片）SHA-256",
+  );
   await expect(page.locator(".checksums .copy-status").first()).toHaveText(
     "复制失败，请手动复制",
   );

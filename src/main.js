@@ -3,11 +3,14 @@ document.documentElement.classList.add("has-js");
 for (const hash of document.querySelectorAll(".checksums code")) {
   const button = document.createElement("button");
   const status = document.createElement("span");
+  const platform =
+    hash.closest("div")?.querySelector("dt")?.textContent.trim() ?? "下载文件";
   let restoreTimer;
 
   button.className = "copy-hash";
   button.type = "button";
   button.textContent = "复制";
+  button.setAttribute("aria-label", `复制 ${platform}SHA-256`);
 
   status.className = "copy-status";
   status.setAttribute("aria-live", "polite");
@@ -25,8 +28,10 @@ for (const hash of document.querySelectorAll(".checksums code")) {
       }
       await navigator.clipboard.writeText(hash.textContent.trim());
       button.textContent = "已复制";
+      status.textContent = `已复制 ${platform}SHA-256`;
       restoreTimer = window.setTimeout(() => {
         button.textContent = "复制";
+        status.textContent = "";
       }, 1600);
     } catch {
       button.textContent = "复制";
