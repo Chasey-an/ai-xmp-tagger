@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI XMP Tagger｜Amazon 卖家本地 XMP 标签工具</title>
-    <link rel="icon" href="./favicon.svg">
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./src/styles.css">
   </head>
   <body>
@@ -36,13 +36,13 @@
           <p class="unofficial-note">独立工具，非 Amazon 官方产品。</p>
 
           <div class="download-actions" id="downloads" aria-label="公开测试版下载">
-            <a class="button button-primary" href="@@MAC_ARM64_URL@@">下载 macOS Apple 芯片版</a>
-            <a class="button button-primary" href="@@WINDOWS_X64_URL@@">下载 Windows x64 版</a>
-            <a class="text-link" href="@@MAC_X64_URL@@">下载 macOS Intel 版</a>
+            <a class="button button-primary" href="@@MAC_ARM64_URL@@">下载 Mac 版（Apple 芯片）</a>
+            <a class="button button-primary" href="@@WINDOWS_X64_URL@@">下载 Windows 版（64 位）</a>
+            <a class="text-link" href="@@MAC_X64_URL@@">Intel Mac 下载</a>
           </div>
           <p class="beta-warning" role="note">
             <strong>安装包暂未签名。</strong>
-            首次打开时，macOS 或 Windows 可能显示安全提示；请仅从本页或 Releases 页面下载。
+            首次打开时，macOS 或 Windows 可能显示安全提示。请先核对下载来源、文件名和 SHA-256，再按下方安装说明打开。
           </p>
         </div>
 
@@ -60,6 +60,7 @@
       </section>
 
       <section class="section" id="policy" aria-labelledby="policy-title">
+        <p class="eyebrow">先确认是否适用</p>
         <h2 id="policy-title">标签政策与适用范围</h2>
         <p>
           本工具用于确实包含 AI 生成人物的商品图片或其他适用媒体。写入前，请先依据你的素材内容和当前平台要求判断是否适用。
@@ -86,6 +87,7 @@
       </section>
 
       <section class="section" id="screenshots" aria-labelledby="screenshots-title">
+        <p class="eyebrow">真实使用过程</p>
         <h2 id="screenshots-title">界面与核验示例</h2>
         <p>以下画面展示从选择模式到独立核验的完整过程。</p>
         <div class="screenshot-grid">
@@ -152,9 +154,11 @@
       </section>
 
       <section class="section" id="modes" aria-labelledby="modes-title">
+        <p class="eyebrow">三种模式</p>
         <h2 id="modes-title">三种处理模式</h2>
         <div class="card-grid">
           <article>
+            <p class="card-number">01</p>
             <h3>高清 JPG＋写入 XMP</h3>
             <p>
               这是默认模式。输入为 JPG 时，文件会直接复制且不重新压缩；其他支持格式会转换为最高质量、4:4:4、sRGB 的 JPG，再写入 XMP，并重新读取验证结果。
@@ -162,6 +166,7 @@
           </article>
 
           <article>
+            <p class="card-number">02</p>
             <h3>保留原格式＋写入 XMP</h3>
             <p>
               先复制文件，再在副本中写入 XMP 并重新读取验证，不改变原始文件。BMP 不使用此模式，请改用“高清 JPG＋写入 XMP”。
@@ -169,6 +174,7 @@
           </article>
 
           <article>
+            <p class="card-number">03</p>
             <h3>仅检查 XMP</h3>
             <p>
               只读取现有 XMP，不创建文件，也不修改任何文件。检查通过要求
@@ -180,36 +186,38 @@
       </section>
 
       <section class="section" id="workflow" aria-labelledby="workflow-title">
+        <p class="eyebrow">使用过程</p>
         <h2 id="workflow-title">六步完成处理与核验</h2>
         <ol class="steps">
           <li>
-            <strong>选择模式：</strong>
-            根据所需输出格式，选择写入模式或“仅检查 XMP”。
+            <span>1</span>
+            <p>选择处理模式。</p>
           </li>
           <li>
-            <strong>添加文件或文件夹：</strong>
-            选择需要处理的图片；文件夹可用于批量添加。
+            <span>2</span>
+            <p>添加图片或整个文件夹。</p>
           </li>
           <li>
-            <strong>确认输出：</strong>
-            检查输出目录、文件数量和将要执行的操作。
+            <span>3</span>
+            <p>确认输出位置。</p>
           </li>
           <li>
-            <strong>确认素材确实包含 AI 生成人物：</strong>
-            只为符合当前平台要求的适用媒体写入标签。
+            <span>4</span>
+            <p>确认素材确实包含 AI 生成人物。</p>
           </li>
           <li>
-            <strong>开始处理并查看结果：</strong>
-            完成后逐项查看写入、跳过或失败状态。
+            <span>5</span>
+            <p>开始处理并查看逐张结果。</p>
           </li>
           <li>
-            <strong>再次核验：</strong>
-            使用“仅检查 XMP”，并按需导出 CSV，或用独立工具复核元数据。
+            <span>6</span>
+            <p>对输出文件运行“仅检查 XMP”，需要时查看 CSV 或用独立工具抽查。</p>
           </li>
         </ol>
       </section>
 
       <section class="section privacy-panel" id="privacy" aria-labelledby="privacy-title">
+        <p class="eyebrow">隐私与文件安全</p>
         <h2 id="privacy-title">本地处理与隐私</h2>
         <p><strong>不上传图片或路径。</strong>图片读取、复制、转换、写入与核验均在本机完成。</p>
         <ul>
@@ -222,6 +230,7 @@
       </section>
 
       <section class="section" id="install" aria-labelledby="install-title">
+        <p class="eyebrow">公开测试版</p>
         <h2 id="install-title">首次安装与系统安全提示</h2>
         <p>
           <strong>安装包暂未签名。</strong>
@@ -234,14 +243,14 @@
             <ol>
               <li>在 Finder 中找到应用，按住 Control 键点按应用，然后选择“打开”。</li>
               <li>如果仍被拦截，打开“系统设置”→“隐私与安全性”，找到相关提示并选择“仍要打开”。</li>
-              <li>确认下载来源和文件版本后，再按系统提示完成首次启动。</li>
+              <li>核对下载来源、文件名和 SHA-256 后，再按系统提示完成首次启动。</li>
             </ol>
           </article>
 
           <article>
             <h3>Windows</h3>
             <ol>
-              <li>Microsoft Defender SmartScreen 出现提示时，先核对文件来源。</li>
+              <li>Microsoft Defender SmartScreen 出现提示时，先核对下载来源、文件名和 SHA-256。</li>
               <li>确认无误后选择“更多信息”，再选择“仍要运行”。</li>
             </ol>
           </article>
@@ -253,6 +262,7 @@
       </section>
 
       <section class="section" id="faq" aria-labelledby="faq-title">
+        <p class="eyebrow">常见问题</p>
         <h2 id="faq-title">常见问题</h2>
 
         <details>
@@ -295,7 +305,7 @@
         <details>
           <summary>为什么系统提示无法验证开发者</summary>
           <p>
-            因为公开测试版安装包暂未签名，macOS 无法完成开发者与公证验证，Windows 也可能显示 SmartScreen 提示。请从本页或 Releases 页面下载，并按上方安全步骤操作。
+            因为公开测试版安装包暂未签名，macOS 无法完成开发者与公证验证，Windows 也可能显示 SmartScreen 提示。请先核对下载来源、文件名和 SHA-256，再按上方安全步骤操作；不要关闭系统安全保护。
           </p>
         </details>
 
@@ -311,9 +321,9 @@
         <h2 id="download-final-title">下载公开测试版</h2>
         <p>选择与你的电脑相符的版本。下载前请阅读上方未签名安装说明。</p>
         <div class="download-actions">
-          <a class="button button-primary" href="@@MAC_ARM64_URL@@">macOS Apple 芯片版</a>
-          <a class="button button-primary" href="@@WINDOWS_X64_URL@@">Windows x64 版</a>
-          <a class="text-link" href="@@RELEASES_URL@@">查看全部版本与下载</a>
+          <a class="button button-primary" href="@@MAC_ARM64_URL@@">下载 Mac 版（Apple 芯片）</a>
+          <a class="button button-primary" href="@@WINDOWS_X64_URL@@">下载 Windows 版（64 位）</a>
+          <a class="text-link" href="@@RELEASES_URL@@">查看全部版本</a>
         </div>
       </section>
     </main>
