@@ -57,8 +57,49 @@ test("FAQ documents supported formats and practical batch limits", async () => {
     /支持 JPG\/JPEG、PNG、WebP、HEIC\/HEIF、TIF\/TIFF 和 BMP/,
   );
   assert.match(html, /没有设置文件夹 GB 上限/);
-  assert.match(html, /已验证单次处理 500 个文件/);
-  assert.match(html, /500–1000 个/);
+  assert.match(html, /已实际验证 500 张图片/);
+  assert.match(html, /更大的任务建议按 500–1,000 张分批/);
+  assert.match(
+    html,
+    /未另选位置时，输出在源文件旁的 <code>Amazon_XMP_Output<\/code> 文件夹/,
+  );
+});
+
+test("page exposes the planned styling hooks and download hierarchy", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+
+  for (const className of [
+    "site-header",
+    "brand",
+    "brand-mark",
+    "hero",
+    "hero-copy",
+    "hero-preview",
+    "download-actions",
+    "beta-warning",
+    "section",
+    "screenshot-grid",
+    "card-grid",
+    "steps",
+    "privacy-panel",
+    "install-grid",
+    "final-download",
+    "site-footer",
+  ]) {
+    assert.match(html, new RegExp(`class="[^"]*\\b${className}\\b[^"]*"`));
+  }
+
+  assert.match(
+    html,
+    /class="button button-primary" href="@@MAC_ARM64_URL@@"/,
+  );
+  assert.match(
+    html,
+    /class="button button-primary" href="@@WINDOWS_X64_URL@@"/,
+  );
+  assert.match(html, /class="text-link" href="@@MAC_X64_URL@@"/);
+  assert.match(html, /<span>v@@VERSION@@<\/span>/);
+  assert.match(html, /自己站点卖家平台的最新通知/);
 });
 
 test("favicon provides the standalone XMP mark", async () => {
