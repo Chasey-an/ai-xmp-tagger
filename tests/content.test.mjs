@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { validateReleaseManifest } from "../release-manifest.mjs";
 
 test("release manifest defines the verified v0.1.0 assets in platform order", async () => {
   const manifest = JSON.parse(
@@ -39,6 +40,95 @@ test("release manifest defines the verified v0.1.0 assets in platform order", as
   for (const asset of manifest.assets) {
     assert.match(asset.sha256, /^[a-f0-9]{64}$/);
     assert.ok(asset.bytes > 100_000_000);
+  }
+});
+
+test("release manifest validation rejects unsafe build metadata", async () => {
+  const validManifest = JSON.parse(
+    await readFile(new URL("../release.json", import.meta.url), "utf8"),
+  );
+  assert.equal(validateReleaseManifest(validManifest), validManifest);
+
+  const invalidCases = [
+    {
+      name: "non-integer bytes",
+      mutate(manifest) {
+        manifest.assets[0].bytes = 1.5;
+      },
+      expected: /platform "mac-arm64" field "bytes".*positive integer/,
+    },
+    {
+      name: "non-positive bytes",
+      mutate(manifest) {
+        manifest.assets[0].bytes = 0;
+      },
+      expected: /platform "mac-arm64" field "bytes".*positive integer/,
+    },
+    {
+      name: "uppercase hash",
+      mutate(manifest) {
+        manifest.assets[0].sha256 = "A".repeat(64);
+      },
+      expected: /platform "mac-arm64" field "sha256".*lowercase 64-hex/,
+    },
+    {
+      name: "empty filename",
+      mutate(manifest) {
+        manifest.assets[0].filename = "";
+      },
+      expected: /platform "mac-arm64" field "filename"/,
+    },
+    {
+      name: "filename with path separators",
+      mutate(manifest) {
+        manifest.assets[0].filename = "../unsafe.dmg";
+      },
+      expected: /platform "mac-arm64" field "filename"/,
+    },
+    {
+      name: "duplicate platform",
+      mutate(manifest) {
+        manifest.assets.push({ ...manifest.assets[0] });
+      },
+      expected: /platform "mac-arm64".*more than once/,
+    },
+    {
+      name: "missing platform",
+      mutate(manifest) {
+        manifest.assets = manifest.assets.filter(
+          ({ platform }) => platform !== "mac-x64",
+        );
+      },
+      expected: /missing required platform "mac-x64"/,
+    },
+    {
+      name: "malformed version",
+      mutate(manifest) {
+        const previousVersion = manifest.version;
+        manifest.version = "0.1.0-..";
+        manifest.tag = `v${manifest.version}`;
+        for (const asset of manifest.assets) {
+          asset.filename = asset.filename.replace(
+            previousVersion,
+            manifest.version,
+          );
+        }
+      },
+      expected: /field "version".*semantic version/,
+    },
+    {
+      name: "incoherent tag",
+      mutate(manifest) {
+        manifest.tag = "v9.9.9";
+      },
+      expected: /field "tag".*equal "v0\.1\.0"/,
+    },
+  ];
+
+  for (const { name, mutate, expected } of invalidCases) {
+    const manifest = structuredClone(validManifest);
+    mutate(manifest);
+    assert.throws(() => validateReleaseManifest(manifest), expected, name);
   }
 });
 

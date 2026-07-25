@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { validateReleaseManifest } from "../release-manifest.mjs";
 
 const usage =
   "Usage: node scripts/assert-release-assets.mjs /absolute/path/to/dist";
@@ -60,8 +61,10 @@ async function main() {
     throw new Error(usage);
   }
 
-  const manifest = JSON.parse(
-    await readFile(new URL("../release.json", import.meta.url), "utf8"),
+  const manifest = validateReleaseManifest(
+    JSON.parse(
+      await readFile(new URL("../release.json", import.meta.url), "utf8"),
+    ),
   );
 
   for (const asset of manifest.assets) {

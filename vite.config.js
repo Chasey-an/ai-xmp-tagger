@@ -1,8 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { defineConfig } from "vite";
+import { validateReleaseManifest } from "./release-manifest.mjs";
 
-const manifest = JSON.parse(
-  await readFile(new URL("./release.json", import.meta.url), "utf8"),
+const manifest = validateReleaseManifest(
+  JSON.parse(
+    await readFile(new URL("./release.json", import.meta.url), "utf8"),
+  ),
 );
 
 function requireAsset(platform) {
