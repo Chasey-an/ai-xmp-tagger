@@ -55,6 +55,14 @@ test("product walkthrough uses six native-size descriptive PNGs with intentional
     "./images/app-report.png",
     "./images/xmp-verification.png",
   ]);
+  await expect(screenshots.nth(2)).toHaveAttribute(
+    "alt",
+    /同时添加单个中性测试图片和测试文件夹/,
+  );
+  await expect(screenshots.nth(3)).toHaveAttribute(
+    "alt",
+    /两张中性测试图片/,
+  );
 
   for (let index = 0; index < 6; index += 1) {
     const image = screenshots.nth(index);
