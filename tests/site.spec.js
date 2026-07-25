@@ -304,3 +304,33 @@ test("copy controls recover from Clipboard API failure without an unhandled erro
   );
   expect(pageErrors).toEqual([]);
 });
+
+test("page load and checksum copy make no cross-origin requests", async ({
+  page,
+}) => {
+  const expectedOrigin = new URL("http://127.0.0.1:4173").origin;
+  const unexpectedRequests = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.origin !== expectedOrigin) {
+      unexpectedRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {},
+      },
+    });
+  });
+
+  await page.goto("/");
+  await page.locator(".checksums > summary").click();
+  await page.locator(".checksums .copy-hash").first().click();
+  await expect(page.locator(".checksums .copy-status").first()).toContainText(
+    "已复制",
+  );
+
+  expect(unexpectedRequests).toEqual([]);
+});

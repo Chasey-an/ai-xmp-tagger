@@ -1,7 +1,45 @@
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { validateReleaseManifest } from "../release-manifest.mjs";
+
+const projectDirectory = new URL("../", import.meta.url);
+
+async function listSourceFiles(directoryUrl, excludedNames = new Set()) {
+  const files = [];
+  for (const entry of await readdir(directoryUrl, { withFileTypes: true })) {
+    if (excludedNames.has(entry.name)) {
+      continue;
+    }
+
+    const entryUrl = new URL(entry.name, directoryUrl);
+    if (entry.isDirectory()) {
+      files.push(
+        ...(await listSourceFiles(
+          new URL(`${entry.name}/`, directoryUrl),
+          excludedNames,
+        )),
+      );
+    } else if (/\.(?:html|js|mjs|css)$/.test(entry.name)) {
+      files.push(entryUrl);
+    }
+  }
+  return files;
+}
+
+function sha256(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
 
 test("release manifest defines the verified v0.1.0 assets in platform order", async () => {
   const manifest = JSON.parse(
@@ -399,15 +437,32 @@ test("document head provides complete local-first search and share metadata", as
   );
 });
 
-test("source page has no analytics or third-party remote presentation assets", async () => {
-  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+test("authored and built web assets contain no analytics or tracking code", async () => {
+  const authoredFiles = await listSourceFiles(
+    projectDirectory,
+    new Set([".git", "dist", "node_modules", "tests"]),
+  );
+  const builtFiles = await listSourceFiles(
+    new URL("../dist/", import.meta.url),
+  );
+  const forbiddenTracking =
+    /google-analytics|tagmanager|gtag\s*\(|dataLayer|plausible(?:\.io)?|clarity(?:\.ms)?|segment(?:\.com)?|analytics\.js|sendBeacon\s*\(|fetch\s*\([^)]*(?:analytics|telemetry|tracking|collect|events?|metrics?|insights?)|(?:analytics|telemetry|tracking|collect|events?|metrics?|insights?)[^;\n]*fetch\s*\(/i;
 
-  assert.doesNotMatch(
-    html,
-    /google-analytics|googletagmanager|gtag\s*\(|plausible|clarity\.ms|segment\.com|analytics\.js/i,
+  for (const fileUrl of [...authoredFiles, ...builtFiles]) {
+    const source = await readFile(fileUrl, "utf8");
+    assert.doesNotMatch(
+      source,
+      forbiddenTracking,
+      `unexpected tracking code in ${fileUrl.pathname}`,
+    );
+  }
+
+  const indexHtml = await readFile(
+    new URL("../index.html", import.meta.url),
+    "utf8",
   );
   assert.doesNotMatch(
-    html,
+    indexHtml,
     /<(?:script|img|link)\b[^>]*(?:src|href)=["']https?:\/\//i,
   );
 });
@@ -466,6 +521,87 @@ test("generated social card is a nonempty 1200 by 630 PNG", async () => {
   assert.equal(image.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   assert.equal(image.readUInt32BE(16), 1200);
   assert.equal(image.readUInt32BE(20), 630);
+});
+
+test("social card lock proves source, renderer, contract, and output provenance", async () => {
+  const lock = JSON.parse(
+    await readFile(
+      new URL("../social-card.lock.json", import.meta.url),
+      "utf8",
+    ),
+  );
+
+  assert.deepEqual(lock.contract, {
+    version: 1,
+    platform: "darwin",
+    width: 1200,
+    height: 630,
+    deviceScaleFactor: 1,
+    playwrightVersion: "1.61.1",
+    font:
+      '"PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+  });
+
+  for (const relativePath of [
+    "social-card.html",
+    "public/images/app-home.png",
+    "scripts/capture-social-card.mjs",
+    "public/images/social-card.png",
+  ]) {
+    assert.equal(
+      lock.files[relativePath],
+      sha256(await readFile(new URL(`../${relativePath}`, import.meta.url))),
+      `${relativePath} must match social-card.lock.json`,
+    );
+  }
+});
+
+test("invalid temporary PNG cannot replace an existing valid social card", async () => {
+  const { installValidatedPng } = await import(
+    "../scripts/capture-social-card.mjs"
+  );
+  const temporaryDirectory = await mkdtemp(
+    path.join(tmpdir(), "social-card-atomic-test-"),
+  );
+  const outputPath = path.join(temporaryDirectory, "social-card.png");
+  const invalidTempPath = path.join(
+    temporaryDirectory,
+    "invalid-social-card.tmp.png",
+  );
+  const knownValidPng = await readFile(
+    new URL("../public/images/social-card.png", import.meta.url),
+  );
+
+  try {
+    await writeFile(outputPath, knownValidPng);
+    await writeFile(invalidTempPath, "not a png");
+
+    await assert.rejects(
+      installValidatedPng(invalidTempPath, outputPath),
+      /PNG|social card/i,
+    );
+    assert.deepEqual(await readFile(outputPath), knownValidPng);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("non-macOS social card check verifies the lock without rendering", async () => {
+  const { checkSocialCard } = await import(
+    "../scripts/capture-social-card.mjs"
+  );
+  let rendered = false;
+  const result = await checkSocialCard({
+    platform: "linux",
+    render: async () => {
+      rendered = true;
+      throw new Error("non-macOS checks must not render");
+    },
+    log() {},
+  });
+
+  assert.equal(result, "source-lock");
+  assert.equal(rendered, false);
 });
 
 test("favicon provides the standalone XMP mark", async () => {

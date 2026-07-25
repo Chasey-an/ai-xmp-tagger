@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "capture:social": "node scripts/capture-social-card.mjs",
+    "capture:social:check": "node scripts/capture-social-card.mjs --check",
     "test:content": "node --test tests/content.test.mjs",
     "test:release": "node --test tests/release-integrity.test.mjs",
     "test:e2e": "playwright test --pass-with-no-tests",
-    "test": "npm run build && npm run test:content && npm run test:release && npm run test:e2e"
+    "test": "npm run build && npm run capture:social:check && npm run test:content && npm run test:release && npm run test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
