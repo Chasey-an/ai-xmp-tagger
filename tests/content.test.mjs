@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import { validateReleaseManifest } from "../release-manifest.mjs";
 
@@ -351,6 +351,121 @@ test("document head declares the favicon MIME type", async () => {
     html,
     /<link rel="icon" href="\.\/favicon\.svg" type="image\/svg\+xml">/,
   );
+});
+
+test("document head provides complete local-first search and share metadata", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+
+  assert.match(
+    html,
+    /<meta name="description" content="[^"]*本地批量[^"]*XMP[^"]*contains-synthetic-performer[^"]*">/,
+  );
+  assert.match(
+    html,
+    /<link rel="canonical" href="@@CANONICAL_URL@@">/,
+  );
+  assert.match(html, /<meta property="og:type" content="website">/);
+  assert.match(
+    html,
+    /<meta property="og:title" content="AI XMP Tagger · 本地批量 XMP 标签工具">/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:description" content="[^"]*批量[^"]*(?:生成[^"]*检查|检查[^"]*生成)[^"]*(?:Mac[^"]*Windows|Windows[^"]*Mac)[^"]*">/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:url" content="@@CANONICAL_URL@@">/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:image" content="@@CANONICAL_URL@@images\/social-card\.png">/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:image:width" content="1200">/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:image:height" content="630">/,
+  );
+  assert.match(
+    html,
+    /<meta property="og:image:alt" content="[^"]*AI XMP Tagger[^"]*本地[^"]*XMP[^"]*">/,
+  );
+  assert.match(
+    html,
+    /<meta name="twitter:card" content="summary_large_image">/,
+  );
+});
+
+test("source page has no analytics or third-party remote presentation assets", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+
+  assert.doesNotMatch(
+    html,
+    /google-analytics|googletagmanager|gtag\s*\(|plausible|clarity\.ms|segment\.com|analytics\.js/i,
+  );
+  assert.doesNotMatch(
+    html,
+    /<(?:script|img|link)\b[^>]*(?:src|href)=["']https?:\/\//i,
+  );
+});
+
+test("built page resolves canonical and social image metadata tokens", async () => {
+  const html = await readFile(
+    new URL("../dist/index.html", import.meta.url),
+    "utf8",
+  );
+  const canonicalUrl =
+    "https://local.github.io/ai-xmp-tagger/";
+
+  assert.doesNotMatch(html, /@@[A-Z0-9_]+@@/);
+  assert.ok(
+    html.includes(`<link rel="canonical" href="${canonicalUrl}">`),
+  );
+  assert.ok(
+    html.includes(`<meta property="og:url" content="${canonicalUrl}">`),
+  );
+  assert.ok(
+    html.includes(
+      `<meta property="og:image" content="${canonicalUrl}images/social-card.png">`,
+    ),
+  );
+});
+
+test("social card source is local-only and contains the approved copy", async () => {
+  const html = await readFile(
+    new URL("../social-card.html", import.meta.url),
+    "utf8",
+  );
+
+  for (const copy of [
+    "XMP",
+    "AI XMP Tagger",
+    "本地批量写入与检查 XMP 标签",
+    "Mac / Windows · 本地离线处理",
+  ]) {
+    assert.ok(html.includes(copy));
+  }
+  assert.match(html, /src="\.\/public\/images\/app-home\.png"/);
+  assert.doesNotMatch(html, /https?:\/\//);
+});
+
+test("generated social card is a nonempty 1200 by 630 PNG", async () => {
+  const imageUrl = new URL(
+    "../public/images/social-card.png",
+    import.meta.url,
+  );
+  const [image, imageStat] = await Promise.all([
+    readFile(imageUrl),
+    stat(imageUrl),
+  ]);
+
+  assert.ok(imageStat.size > 20_000);
+  assert.equal(image.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal(image.readUInt32BE(16), 1200);
+  assert.equal(image.readUInt32BE(20), 630);
 });
 
 test("favicon provides the standalone XMP mark", async () => {
