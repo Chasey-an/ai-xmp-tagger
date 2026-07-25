@@ -1,0 +1,17 @@
+{
+  "name": "ai-xmp-tagger-public-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test:content": "node --test tests/content.test.mjs",
+    "test:e2e": "playwright test",
+    "test": "npm run build && npm run test:content && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "vite": "7.3.6"
+  }
+}
