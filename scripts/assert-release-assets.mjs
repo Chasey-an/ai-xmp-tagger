@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { validateReleaseManifest } from "../release-manifest.mjs";
 
 const usage =
   "Usage: node scripts/assert-release-assets.mjs /absolute/path/to/dist";
 
-async function sha256(filePath) {
+export async function sha256File(filePath) {
   const hash = createHash("sha256");
 
   for await (const chunk of createReadStream(filePath)) {
@@ -17,7 +18,11 @@ async function sha256(filePath) {
   return hash.digest("hex");
 }
 
-async function verifyAsset(distDirectory, asset) {
+export async function verifyAsset(
+  distDirectory,
+  asset,
+  output = console,
+) {
   const filePath = path.join(distDirectory, asset.filename);
   let fileStats;
 
@@ -40,18 +45,18 @@ async function verifyAsset(distDirectory, asset) {
     );
   }
 
-  const actualSha256 = await sha256(filePath);
+  const actualSha256 = await sha256File(filePath);
   if (actualSha256 !== asset.sha256) {
     throw new Error(
       `SHA-256 mismatch for ${asset.filename}: expected ${asset.sha256}, got ${actualSha256}`,
     );
   }
 
-  console.log(`verified ${asset.filename}`);
+  output.log(`verified ${asset.filename}`);
 }
 
-async function main() {
-  const [distDirectory, ...extraArguments] = process.argv.slice(2);
+export function parseDistDirectoryArgument(argumentsList) {
+  const [distDirectory, ...extraArguments] = argumentsList;
 
   if (
     !distDirectory ||
@@ -61,18 +66,40 @@ async function main() {
     throw new Error(usage);
   }
 
-  const manifest = validateReleaseManifest(
-    JSON.parse(
-      await readFile(new URL("../release.json", import.meta.url), "utf8"),
-    ),
-  );
+  return distDirectory;
+}
+
+export async function verifyReleaseAssets(
+  distDirectory,
+  unvalidatedManifest,
+  output = console,
+) {
+  const manifest = validateReleaseManifest(unvalidatedManifest);
 
   for (const asset of manifest.assets) {
-    await verifyAsset(distDirectory, asset);
+    await verifyAsset(distDirectory, asset, output);
   }
 }
 
-main().catch((error) => {
-  console.error(`Release asset verification failed: ${error.message}`);
-  process.exitCode = 1;
-});
+export async function runCli(
+  argumentsList = process.argv.slice(2),
+  output = console,
+) {
+  const distDirectory = parseDistDirectoryArgument(argumentsList);
+  const manifest = JSON.parse(
+    await readFile(new URL("../release.json", import.meta.url), "utf8"),
+  );
+
+  await verifyReleaseAssets(distDirectory, manifest, output);
+}
+
+const isMainModule =
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+
+if (isMainModule) {
+  runCli().catch((error) => {
+    console.error(`Release asset verification failed: ${error.message}`);
+    process.exitCode = 1;
+  });
+}

@@ -151,7 +151,7 @@ test("built page resolves every release token to v0.1.0 downloads", async () => 
   }
   assert.ok(html.includes("AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe"));
   assert.ok(html.includes("版本 v0.1.0、文件大小和 SHA-256"));
-  for (const size of ["110.4 MB", "115.7 MB", "98.1 MB"]) {
+  for (const size of ["115.8 MB", "121.3 MB", "102.9 MB"]) {
     assert.ok(html.includes(size));
   }
   for (const { sha256 } of JSON.parse(
