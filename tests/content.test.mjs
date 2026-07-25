@@ -303,12 +303,17 @@ test("mode cards and workflow preserve their visible semantic numbers", async ()
     /<section[^>]*id="workflow"[^>]*>([\s\S]*?)<\/section>/,
   )?.[1];
   assert.ok(workflow);
-  assert.equal(workflow.match(/<li>\s*<span>[1-6]<\/span>\s*<p>/g)?.length, 6);
+  assert.equal(
+    workflow.match(
+      /<li>\s*<span aria-hidden="true">[1-6]<\/span>\s*<p>/g,
+    )?.length,
+    6,
+  );
   for (let number = 1; number <= 6; number += 1) {
     assert.match(
       workflow,
       new RegExp(
-        `<li>\\s*<span>${number}</span>\\s*<p>[\\s\\S]*?</p>\\s*</li>`,
+        `<li>\\s*<span aria-hidden="true">${number}</span>\\s*<p>[\\s\\S]*?</p>\\s*</li>`,
       ),
     );
   }
