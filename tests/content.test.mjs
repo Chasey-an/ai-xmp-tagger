@@ -2,6 +2,75 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+test("release manifest defines the verified v0.1.0 assets in platform order", async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL("../release.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.tag, "v0.1.0");
+  assert.deepEqual(manifest.assets, [
+    {
+      platform: "mac-arm64",
+      label: "Mac（Apple 芯片）",
+      filename: "AI-XMP-Tagger-0.1.0-macOS-arm64.dmg",
+      bytes: 115804442,
+      sha256:
+        "1f5cd0e3d157de1ca7df401e15d6a57d6b8566dc32ea24b5a5ba7d5678603051",
+    },
+    {
+      platform: "mac-x64",
+      label: "Mac（Intel）",
+      filename: "AI-XMP-Tagger-0.1.0-macOS-x64.dmg",
+      bytes: 121270087,
+      sha256:
+        "740dbd5fb8d9721c3d6ac660a1cb7697b84e8eef03b3349ac4814153a75041f4",
+    },
+    {
+      platform: "windows-x64",
+      label: "Windows（64 位）",
+      filename: "AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe",
+      bytes: 102880178,
+      sha256:
+        "daeff1576c42c03a1aed16857fa966b8c920cf534749a3acfa37ca67294d96a1",
+    },
+  ]);
+
+  for (const asset of manifest.assets) {
+    assert.match(asset.sha256, /^[a-f0-9]{64}$/);
+    assert.ok(asset.bytes > 100_000_000);
+  }
+});
+
+test("built page resolves every release token to v0.1.0 downloads", async () => {
+  const html = await readFile(
+    new URL("../dist/index.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(html, /@@[A-Z0-9_]+@@/);
+  const repository =
+    process.env.GITHUB_REPOSITORY || "local/ai-xmp-tagger";
+  const downloadRoot = `https://github.com/${repository}/releases/download/v0.1.0`;
+  for (const filename of [
+    "AI-XMP-Tagger-0.1.0-macOS-arm64.dmg",
+    "AI-XMP-Tagger-0.1.0-macOS-x64.dmg",
+    "AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe",
+  ]) {
+    assert.ok(html.includes(`${downloadRoot}/${filename}`));
+  }
+  assert.ok(html.includes("AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe"));
+  assert.ok(html.includes("版本 v0.1.0、文件大小和 SHA-256"));
+  for (const size of ["110.4 MB", "115.7 MB", "98.1 MB"]) {
+    assert.ok(html.includes(size));
+  }
+  for (const { sha256 } of JSON.parse(
+    await readFile(new URL("../release.json", import.meta.url), "utf8"),
+  ).assets) {
+    assert.ok(html.includes(sha256));
+  }
+});
+
 test("public page includes its required Chinese download-site content", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 
@@ -76,6 +145,7 @@ test("page exposes the planned styling hooks and download hierarchy", async () =
     "hero-copy",
     "hero-preview",
     "download-actions",
+    "checksums",
     "beta-warning",
     "section",
     "screenshot-grid",

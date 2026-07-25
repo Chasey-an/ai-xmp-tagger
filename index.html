@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI XMP Tagger｜Amazon 卖家本地 XMP 标签工具</title>
+    <link rel="canonical" href="@@CANONICAL_URL@@">
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./src/styles.css">
   </head>
@@ -40,6 +41,26 @@
             <a class="button button-primary" href="@@WINDOWS_X64_URL@@">下载 Windows 版（64 位）</a>
             <a class="text-link" href="@@MAC_X64_URL@@">Intel Mac 下载</a>
           </div>
+          <details class="checksums">
+            <summary>版本 v@@VERSION@@、文件大小和 SHA-256</summary>
+            <dl>
+              <div>
+                <dt>Mac（Apple 芯片）</dt>
+                <dd>v@@VERSION@@ · DMG · arm64 · @@MAC_ARM64_SIZE@@</dd>
+                <dd><code>@@MAC_ARM64_SHA@@</code></dd>
+              </div>
+              <div>
+                <dt>Mac（Intel）</dt>
+                <dd>v@@VERSION@@ · DMG · x64 · @@MAC_X64_SIZE@@</dd>
+                <dd><code>@@MAC_X64_SHA@@</code></dd>
+              </div>
+              <div>
+                <dt>Windows（64 位）</dt>
+                <dd>v@@VERSION@@ · EXE · x64 · @@WINDOWS_X64_SIZE@@</dd>
+                <dd><code>@@WINDOWS_X64_SHA@@</code></dd>
+              </div>
+            </dl>
+          </details>
           <p class="beta-warning" role="note">
             <strong>安装包暂未签名。</strong>
             首次打开时，macOS 或 Windows 可能显示安全提示。请先核对下载来源、文件名和 SHA-256，再按下方安装说明打开。

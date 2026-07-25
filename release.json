@@ -1,0 +1,27 @@
+{
+  "version": "0.1.0",
+  "tag": "v0.1.0",
+  "assets": [
+    {
+      "platform": "mac-arm64",
+      "label": "Mac（Apple 芯片）",
+      "filename": "AI-XMP-Tagger-0.1.0-macOS-arm64.dmg",
+      "bytes": 115804442,
+      "sha256": "1f5cd0e3d157de1ca7df401e15d6a57d6b8566dc32ea24b5a5ba7d5678603051"
+    },
+    {
+      "platform": "mac-x64",
+      "label": "Mac（Intel）",
+      "filename": "AI-XMP-Tagger-0.1.0-macOS-x64.dmg",
+      "bytes": 121270087,
+      "sha256": "740dbd5fb8d9721c3d6ac660a1cb7697b84e8eef03b3349ac4814153a75041f4"
+    },
+    {
+      "platform": "windows-x64",
+      "label": "Windows（64 位）",
+      "filename": "AI-XMP-Tagger-0.1.0-Windows-x64-Setup.exe",
+      "bytes": 102880178,
+      "sha256": "daeff1576c42c03a1aed16857fa966b8c920cf534749a3acfa37ca67294d96a1"
+    }
+  ]
+}
