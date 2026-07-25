@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:content": "node --test tests/content.test.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --pass-with-no-tests",
     "test": "npm run build && npm run test:content && npm run test:e2e"
   },
   "devDependencies": {

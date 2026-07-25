@@ -10,3 +10,13 @@ test("public page includes its required Chinese download-site content", async ()
   assert.match(html, /id="downloads"/);
   assert.match(html, /非 Amazon 官方产品/);
 });
+
+test("favicon provides the standalone XMP mark", async () => {
+  const favicon = await readFile(
+    new URL("../public/favicon.svg", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(favicon, /viewBox="0 0 64 64"/);
+  assert.match(favicon, />XMP</);
+});
