@@ -42,7 +42,10 @@
             <a class="text-link" href="@@MAC_X64_URL@@">Intel Mac 下载</a>
           </div>
           <details class="checksums">
-            <summary>版本 v@@VERSION@@、文件大小和 SHA-256</summary>
+            <summary>
+              <span>版本 v@@VERSION@@、文件大小和 SHA-256</span>
+              <span class="disclosure-icon" aria-hidden="true"></span>
+            </summary>
             <dl>
               <div>
                 <dt>Mac（Apple 芯片）</dt>
@@ -73,6 +76,8 @@
             width="1440"
             height="900"
             alt="AI XMP Tagger 首页，显示三种本地 XMP 处理模式"
+            loading="eager"
+            decoding="async"
           >
           <figcaption>
             首页集中展示模式选择、离线说明和处理入口。
@@ -118,6 +123,8 @@
               width="1440"
               height="900"
               alt="AI XMP Tagger 模式选择界面，列出高清 JPG、保留原格式和仅检查三种模式"
+              loading="lazy"
+              decoding="async"
             >
             <figcaption>
               先根据交付格式与操作目的选择一种处理模式。
@@ -130,6 +137,8 @@
               width="1440"
               height="900"
               alt="AI XMP Tagger 输入界面，显示添加图片文件和添加文件夹入口"
+              loading="lazy"
+              decoding="async"
             >
             <figcaption>
               可添加单个或多个文件，也可一次添加整个文件夹。
@@ -142,6 +151,8 @@
               width="1440"
               height="900"
               alt="AI XMP Tagger 结果界面，逐项显示 XMP 写入与重新验证成功状态"
+              loading="lazy"
+              decoding="async"
             >
             <figcaption>
               处理结果逐文件列出，并标明写入后重新读取验证的状态。
@@ -153,7 +164,9 @@
               src="./images/app-report.png"
               width="1440"
               height="900"
-              alt="AI XMP Tagger 脱敏 CSV 报告示例，仅展示处理状态而不暴露本地完整路径"
+              alt="本地离线 CSV 预览页显示 AI XMP Tagger 报告字段和中性测试素材结果"
+              loading="lazy"
+              decoding="async"
             >
             <figcaption>
               可选导出的 CSV 报告经过脱敏，便于留档或交接核查。
@@ -162,13 +175,15 @@
 
           <figure>
             <img
-              src="./images/preview-keyword.png"
+              src="./images/xmp-verification.png"
               width="1440"
               height="900"
-              alt="macOS 预览的信息检查器，在关键词中显示 contains-synthetic-performer"
+              alt="ExifTool 独立抽查 XMP dc:subject，显示 contains-synthetic-performer"
+              loading="lazy"
+              decoding="async"
             >
             <figcaption>
-              macOS“预览”可在关键词中独立查看写入的固定值。
+              ExifTool 可离线独立抽查 XMP <code>dc:subject</code> 中写入的固定值。
             </figcaption>
           </figure>
         </div>
@@ -287,35 +302,50 @@
         <h2 id="faq-title">常见问题</h2>
 
         <details>
-          <summary>支持哪些图片格式？</summary>
+          <summary>
+            <span>支持哪些图片格式？</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             支持 JPG/JPEG、PNG、WebP、HEIC/HEIF、TIF/TIFF 和 BMP。JPG 可在默认模式中直接复制；其他受支持格式可转换为高质量 JPG，或在格式允许时使用“保留原格式＋写入 XMP”。BMP 请使用 JPG 模式。
           </p>
         </details>
 
         <details>
-          <summary>一次可以处理多少文件？</summary>
+          <summary>
+            <span>一次可以处理多少文件？</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             软件没有设置文件夹 GB 上限，但输出仍需足够的可用磁盘空间。已实际验证 500 张图片的批量处理；更大的任务建议按 500–1,000 张分批，完成一批后先检查结果再继续，以便定位个别异常文件。
           </p>
         </details>
 
         <details>
-          <summary>JPG 会不会损失清晰度？</summary>
+          <summary>
+            <span>JPG 会不会损失清晰度？</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             JPG 输入在默认模式中仅复制，不重新压缩，因此不会因再次编码而降低清晰度。其他格式转换为 JPG 时使用最高质量、4:4:4 与 sRGB 设置，但任何格式转换都可能产生与源文件不同的编码结果。
           </p>
         </details>
 
         <details>
-          <summary>处理后的文件在哪里？</summary>
+          <summary>
+            <span>处理后的文件在哪里？</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             未另选位置时，输出在源文件旁的 <code>Amazon_XMP_Output</code> 文件夹；原文件留在原位置且保持不变。
           </p>
         </details>
 
         <details>
-          <summary>怎样确认 XMP 已正确写入？</summary>
+          <summary>
+            <span>怎样确认 XMP 已正确写入？</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             可先查看应用内逐文件验证结果，再用“仅检查 XMP”复查。macOS 可在“预览”的信息检查器中查看关键词；Windows 可用 ExifTool 读取
             <code>XMP-dc:Subject</code>。请核对该 XMP 字段，而不要只看 Windows 属性里的
@@ -324,14 +354,20 @@
         </details>
 
         <details>
-          <summary>为什么系统提示无法验证开发者</summary>
+          <summary>
+            <span>为什么系统提示无法验证开发者</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             因为公开测试版安装包暂未签名，macOS 无法完成开发者与公证验证，Windows 也可能显示 SmartScreen 提示。请先核对下载来源、文件名和 SHA-256，再按上方安全步骤操作；不要关闭系统安全保护。
           </p>
         </details>
 
         <details>
-          <summary>工具会自动判断图片是不是 AI 生成吗</summary>
+          <summary>
+            <span>工具会自动判断图片是不是 AI 生成吗</span>
+            <span class="disclosure-icon" aria-hidden="true"></span>
+          </summary>
           <p>
             不会。本工具不会判断图片是不是 AI 生成，也不会分析人物内容；是否需要标签必须由你依据素材事实和最新平台要求确认。
           </p>

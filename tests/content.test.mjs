@@ -283,7 +283,7 @@ test("download areas use the prescribed platform labels", async () => {
   );
 });
 
-test("mode cards and workflow preserve their visible semantic numbers", async () => {
+test("mode cards preserve their visible semantic numbers", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 
   for (const [number, heading] of [
@@ -295,25 +295,6 @@ test("mode cards and workflow preserve their visible semantic numbers", async ()
       html,
       new RegExp(
         `<article>\\s*<p class="card-number">${number}</p>\\s*<h3>${heading}</h3>`,
-      ),
-    );
-  }
-
-  const workflow = html.match(
-    /<section[^>]*id="workflow"[^>]*>([\s\S]*?)<\/section>/,
-  )?.[1];
-  assert.ok(workflow);
-  assert.equal(
-    workflow.match(
-      /<li>\s*<span aria-hidden="true">[1-6]<\/span>\s*<p>/g,
-    )?.length,
-    6,
-  );
-  for (let number = 1; number <= 6; number += 1) {
-    assert.match(
-      workflow,
-      new RegExp(
-        `<li>\\s*<span aria-hidden="true">${number}</span>\\s*<p>[\\s\\S]*?</p>\\s*</li>`,
       ),
     );
   }

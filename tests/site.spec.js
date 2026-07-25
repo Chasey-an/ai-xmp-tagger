@@ -36,6 +36,58 @@ test("downloads are touch-sized and the skip link is first in keyboard order", a
   await expect(page.locator(".skip-link")).toBeVisible();
 });
 
+test("product walkthrough uses six native-size descriptive PNGs with intentional loading", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const screenshots = page.locator("#screenshots img, .hero-preview img");
+  await expect(screenshots).toHaveCount(6);
+  expect(
+    await screenshots.evaluateAll((images) =>
+      images.map((image) => image.getAttribute("src")),
+    ),
+  ).toEqual([
+    "./images/app-home.png",
+    "./images/app-modes.png",
+    "./images/app-input.png",
+    "./images/app-results.png",
+    "./images/app-report.png",
+    "./images/xmp-verification.png",
+  ]);
+
+  for (let index = 0; index < 6; index += 1) {
+    const image = screenshots.nth(index);
+    const alt = (await image.getAttribute("alt"))?.trim() ?? "";
+    expect(alt, `image ${index + 1} should have descriptive alt text`).not.toBe(
+      "",
+    );
+    await expect(image).toHaveAttribute("width", "1440");
+    await expect(image).toHaveAttribute("height", "900");
+    await expect(image).toHaveAttribute("decoding", "async");
+    if (index === 0) {
+      await expect(image).toHaveAttribute("loading", "eager");
+    } else {
+      await expect(image).toHaveAttribute("loading", "lazy");
+    }
+  }
+
+  const dimensions = await screenshots.evaluateAll((images) =>
+    images.map((image) => ({
+      complete: image.complete,
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+    })),
+  );
+  expect(dimensions).toEqual(
+    Array.from({ length: 6 }, () => ({
+      complete: true,
+      naturalWidth: 1440,
+      naturalHeight: 900,
+    })),
+  );
+});
+
 test("content and release links work when JavaScript is disabled", async ({
   browser,
 }) => {
@@ -106,16 +158,109 @@ test("interactive targets are touch-sized and show a keyboard focus indicator", 
     );
   }
 
-  await page.keyboard.press("Tab");
-  await page.keyboard.press("Tab");
-  const focusedOutline = await page.evaluate(() => {
-    const active = document.activeElement;
-    const styles = getComputedStyle(active);
-    return {
-      style: styles.outlineStyle,
-      width: Number.parseFloat(styles.outlineWidth),
-    };
+  const representativeTargets = [
+    page.getByRole("link", { name: "处理模式", exact: true }),
+    page
+      .getByRole("link", { name: "下载 Mac 版（Apple 芯片）", exact: true })
+      .first(),
+    page.locator(".hero .text-link", { hasText: "Intel Mac 下载" }),
+    page.locator(".checksums > summary"),
+  ];
+  for (const target of representativeTargets) {
+    await target.focus();
+    await expect(target).toBeFocused();
+    const focusedOutline = await target.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return {
+        style: styles.outlineStyle,
+        width: Number.parseFloat(styles.outlineWidth),
+      };
+    });
+    expect(focusedOutline.style).not.toBe("none");
+    expect(focusedOutline.width).toBeGreaterThanOrEqual(2);
+  }
+});
+
+test("FAQ disclosure decoration stays out of accessible names", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const summaries = page.locator("#faq > details > summary");
+  const expectedNames = [
+    "支持哪些图片格式？",
+    "一次可以处理多少文件？",
+    "JPG 会不会损失清晰度？",
+    "处理后的文件在哪里？",
+    "怎样确认 XMP 已正确写入？",
+    "为什么系统提示无法验证开发者",
+    "工具会自动判断图片是不是 AI 生成吗",
+  ];
+  await expect(summaries).toHaveCount(7);
+  for (let index = 0; index < 7; index += 1) {
+    const summary = summaries.nth(index);
+    await expect(summary.locator(".disclosure-icon")).toHaveCount(1);
+    await expect(summary.locator(".disclosure-icon")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    await expect(summary).toHaveAccessibleName(expectedNames[index]);
+  }
+});
+
+test("copy controls copy each checksum and show success feedback", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (value) => {
+          window.__copiedChecksum = value;
+        },
+      },
+    });
   });
-  expect(focusedOutline.style).not.toBe("none");
-  expect(focusedOutline.width).toBeGreaterThanOrEqual(2);
+  await page.goto("/");
+
+  const hashes = page.locator(".checksums code");
+  const buttons = page.locator(".checksums .copy-hash");
+  await expect(hashes).toHaveCount(3);
+  await expect(buttons).toHaveCount(3);
+  await page.locator(".checksums > summary").click();
+
+  const expected = (await hashes.first().textContent())?.trim();
+  await buttons.first().click();
+  await expect(buttons.first()).toHaveText("已复制");
+  await expect
+    .poll(() => page.evaluate(() => window.__copiedChecksum))
+    .toBe(expected);
+  await expect(buttons.first()).toHaveText("复制", { timeout: 2_400 });
+});
+
+test("copy controls recover from Clipboard API failure without an unhandled error", async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("clipboard unavailable");
+        },
+      },
+    });
+  });
+  await page.goto("/");
+
+  const button = page.locator(".checksums .copy-hash").first();
+  await page.locator(".checksums > summary").click();
+  await button.click();
+  await expect(button).toHaveText("复制");
+  await expect(page.locator(".checksums .copy-status").first()).toHaveText(
+    "复制失败，请手动复制",
+  );
+  expect(pageErrors).toEqual([]);
 });
