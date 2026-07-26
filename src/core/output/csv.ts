@@ -87,6 +87,32 @@ function protectFormula(value: string): string {
   return /^\s*[=+\-@]/u.test(value) ? `'${value}` : value;
 }
 
+function containsAbsoluteLocalPath(value: string): boolean {
+  const windowsDrive =
+    /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/u.test(value);
+  const windowsNetworkOrDevice = value.includes("\\\\");
+  const commonPosixRoot =
+    /\/(?:Users|home|private|var|tmp|Volumes|root|etc|opt|srv|mnt|media)\//iu.test(
+      value,
+    );
+  const genericPosixAbsolute =
+    /(?:^|[\s("'`，。；;：])\/(?!\/)[^/\s]+\/[^/\s]+/u.test(
+      value,
+    );
+  return (
+    windowsDrive ||
+    windowsNetworkOrDevice ||
+    commonPosixRoot ||
+    genericPosixAbsolute
+  );
+}
+
+function safeMessage(message: string): string {
+  return containsAbsoluteLocalPath(message)
+    ? "处理信息包含本地文件路径，已为保护隐私隐藏；请根据状态检查源文件后重试。"
+    : message;
+}
+
 function csvCell(value: string | number): string {
   const protectedValue = protectFormula(String(value));
   if (/[",\r\n]/u.test(protectedValue)) {
@@ -104,7 +130,7 @@ export function createCsv(
       relativePath,
       safeFilename(result, relativePath),
       stateLabel(result),
-      result.message,
+      safeMessage(result.message),
       formatLabel(result),
       result.reencoded ? "是" : "否",
       result.targetTagCount,

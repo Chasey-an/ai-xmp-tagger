@@ -121,14 +121,14 @@ describe("safe output names", () => {
   test("strips drive roots and protects Windows reserved basenames", () => {
     expect(
       sanitizeRelativePath(String.raw`C:\Users\A\CON.jpg`),
-    ).toBe("Users/A/CON-file.jpg");
+    ).toBe("CON-file.jpg");
     expect(
       planOutputName(
         String.raw`C:\Users\A\CON.jpg`,
-        "jpeg-and-xmp",
-        "jpeg",
+        "original-and-xmp",
+        "png",
       ),
-    ).toBe("Users/A/CON-file_xmp.jpg");
+    ).toBe("CON-file_xmp.jpg");
 
     for (const reserved of [
       "con",
@@ -167,22 +167,22 @@ describe("safe output names", () => {
       sanitizeRelativePath(
         String.raw`\\server\share\目录\图片.jpg`,
       ),
-    ).toBe("目录/图片.jpg");
+    ).toBe("图片.jpg");
     expect(
       sanitizeRelativePath(
         String.raw`\\?\C:\safe\photo.png`,
       ),
-    ).toBe("safe/photo.png");
+    ).toBe("photo.png");
     expect(
       sanitizeRelativePath(
         String.raw`\\?\UNC\server\share\safe\photo.png`,
       ),
-    ).toBe("safe/photo.png");
+    ).toBe("photo.png");
 
     const sanitized = sanitizeRelativePath(
       String.raw`\\.\C:\..\safe\\.\photo?.jpg`,
     );
-    expect(sanitized).toBe("safe/photo.jpg");
+    expect(sanitized).toBe("photo.jpg");
     expect(sanitized).not.toMatch(
       /(?:^\/|^[a-z]:|\\|(?:^|\/)\.\.(?:\/|$))/i,
     );
@@ -216,6 +216,9 @@ describe("safe output names", () => {
     ).toBe("folder/source_xmp.jpg");
     expect(
       planOutputName("folder/source.jpg", "original-and-xmp", "png"),
+    ).toBe("folder/source_xmp.jpg");
+    expect(
+      planOutputName("folder/source", "original-and-xmp", "png"),
     ).toBe("folder/source_xmp.png");
     expect(
       planOutputName("folder/source.jpeg", "verify-only", "jpeg"),
@@ -322,34 +325,75 @@ describe("processing CSV", () => {
     expect(empty.startsWith("\uFEFF相对路径,")).toBe(true);
     expect(empty.split("\r\n")).toHaveLength(2);
   });
+
+  test("replaces messages that contain absolute local paths", () => {
+    const csv = createCsv([
+      result({
+        message:
+          "macOS 文件位于 /Users/Alice/Desktop/private.jpg，请重试",
+      }),
+      result({
+        message: "Linux 文件：/home/alice/private/image.png",
+      }),
+      result({
+        message: String.raw`Windows 文件 C:\Users\Alice\secret.jpg 无法读取`,
+      }),
+      result({
+        message: String.raw`UNC 文件 \\server\share\secret.jpg 无法读取`,
+      }),
+      result({
+        message: String.raw`设备路径 \\?\C:\private\secret.jpg`,
+      }),
+    ]);
+
+    for (const leaked of [
+      "/Users/",
+      "/home/",
+      "Alice",
+      "C:",
+      "\\",
+      "server",
+      "share",
+      "private",
+      "secret.jpg",
+    ]) {
+      expect(csv).not.toContain(leaked);
+    }
+    expect(csv).toContain("本地文件路径");
+  });
 });
 
 describe("output ZIP", () => {
   test("creates a dated, store-only safe archive with images and report", async () => {
     const firstBytes = new Uint8Array([1, 2, 3, 4]);
     const secondBytes = new Uint8Array([5, 6, 7]);
+    const sourceResults = [
+      result({
+        id: "one",
+        relativePath: "../商品图/source.png",
+        output: new Blob([firstBytes], { type: "image/jpeg" }),
+        outputName: "source_xmp.jpg",
+      }),
+      result({
+        id: "two",
+        relativePath: "商品图/SOURCE.png",
+        output: new Blob([secondBytes], { type: "image/jpeg" }),
+        outputName: "SOURCE_xmp.jpg",
+      }),
+      result({
+        id: "checked",
+        state: "checked",
+        relativePath: "not-included.jpg",
+        output: new Blob([new Uint8Array([9])]),
+        outputName: "not-included_xmp.jpg",
+      }),
+    ];
+    const originalCopies = sourceResults.map((item) => ({
+      relativePath: item.relativePath,
+      outputName: item.outputName,
+    }));
     const created = await createOutputZip(
-      [
-        result({
-          id: "one",
-          relativePath: "../商品图/source.png",
-          output: new Blob([firstBytes], { type: "image/jpeg" }),
-          outputName: "source_xmp.jpg",
-        }),
-        result({
-          id: "two",
-          relativePath: "商品图/SOURCE.png",
-          output: new Blob([secondBytes], { type: "image/jpeg" }),
-          outputName: "SOURCE_xmp.jpg",
-        }),
-        result({
-          id: "checked",
-          state: "checked",
-          relativePath: "not-included.jpg",
-          output: new Blob([new Uint8Array([9])]),
-          outputName: "not-included_xmp.jpg",
-        }),
-      ],
+      sourceResults,
       new Date(2026, 6, 26, 9, 5),
     );
 
@@ -364,9 +408,14 @@ describe("output ZIP", () => {
     expect(entries.every((entry) => entry.method === 0)).toBe(true);
     expect(entries[0]?.bytes).toEqual(firstBytes);
     expect(entries[1]?.bytes).toEqual(secondBytes);
-    expect(new TextDecoder().decode(entries[2]?.bytes)).toContain(
-      "not-included.jpg",
-    );
+    const report = new TextDecoder().decode(entries[2]?.bytes);
+    expect(report).toContain("商品图/source_xmp.jpg");
+    expect(report).toContain("商品图/SOURCE_xmp-2.jpg");
+    expect(report).toContain("not-included.jpg");
+    expect(sourceResults.map((item) => ({
+      relativePath: item.relativePath,
+      outputName: item.outputName,
+    }))).toEqual(originalCopies);
   });
 
   test("contains no Zip Slip, absolute, device, bidi, or duplicate entries", async () => {

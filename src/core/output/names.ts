@@ -90,8 +90,13 @@ function sanitizeSegment(rawSegment: string): string {
   return truncateSegment(stem, extension);
 }
 
-function stripPathRoot(path: string): string {
+function stripPathRoot(path: string): {
+  relative: string;
+  rooted: boolean;
+} {
   let relative = path;
+  const rooted =
+    relative.startsWith("/") || /^[A-Za-z]:/u.test(relative);
 
   if (/^\/\/[?.]\//u.test(relative)) {
     relative = relative.slice(4);
@@ -107,7 +112,7 @@ function stripPathRoot(path: string): string {
 
   relative = relative.replace(/^\/+/u, "");
   relative = relative.replace(/^[A-Za-z]:\/?/u, "");
-  return relative;
+  return { relative, rooted };
 }
 
 function boundRelativePath(segments: string[]): string {
@@ -134,7 +139,7 @@ export function sanitizeRelativePath(path: string): string {
   const normalized = String(path)
     .normalize("NFC")
     .replaceAll("\\", "/");
-  const relative = stripPathRoot(normalized);
+  const { relative, rooted } = stripPathRoot(normalized);
   const segments: string[] = [];
 
   for (const rawSegment of relative.split("/")) {
@@ -155,15 +160,30 @@ export function sanitizeRelativePath(path: string): string {
   if (segments.length === 0) {
     return "unnamed";
   }
-  return boundRelativePath(segments);
+  return boundRelativePath(
+    rooted ? [segments.at(-1) ?? "unnamed"] : segments,
+  );
 }
 
 function extensionFor(
   mode: ProcessingMode,
   format: ImageFormat,
+  sourceFilename: string,
 ): string {
   if (mode === "jpeg-and-xmp") {
     return ".jpg";
+  }
+  const sourceExtension = sourceFilename
+    .slice(sourceFilename.lastIndexOf("."))
+    .toLocaleLowerCase("en-US");
+  switch (sourceExtension) {
+    case ".jpg":
+    case ".jpeg":
+      return ".jpg";
+    case ".png":
+    case ".webp":
+    case ".bmp":
+      return sourceExtension;
   }
   switch (format) {
     case "jpeg":
@@ -186,7 +206,7 @@ export function planOutputName(
   const segments = safePath.split("/");
   const filename = segments.pop() ?? "unnamed";
   const { stem } = splitExtension(filename);
-  const extension = extensionFor(mode, format);
+  const extension = extensionFor(mode, format, filename);
   const outputFilename = truncateSegment(stem, extension, "_xmp");
   return boundRelativePath([...segments, outputFilename]);
 }

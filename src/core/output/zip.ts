@@ -79,18 +79,29 @@ export async function createOutputZip(
   results: readonly ReportableProcessResult[],
   now: Date,
 ): Promise<{ filename: string; blob: Blob }> {
-  const successful = results.filter(
-    (
-      result,
-    ): result is ReportableProcessResult & {
+  const successful: Array<{
+    result: ReportableProcessResult & {
       output: Blob;
       outputFormat: ImageFormat;
-    } =>
+    };
+    resultIndex: number;
+  }> = [];
+  for (const [resultIndex, result] of results.entries()) {
+    if (
       result.state === "success" &&
       result.output instanceof Blob &&
-      result.outputFormat !== null,
-  );
-  const plannedNames = successful.map((result) =>
+      result.outputFormat !== null
+    ) {
+      successful.push({
+        result: result as ReportableProcessResult & {
+          output: Blob;
+          outputFormat: ImageFormat;
+        },
+        resultIndex,
+      });
+    }
+  }
+  const plannedNames = successful.map(({ result }) =>
     plannedEntryName(result, result.outputFormat),
   );
   // Reserve the report's fixed root name before resolving image collisions.
@@ -98,16 +109,33 @@ export async function createOutputZip(
     REPORT_NAME,
     ...plannedNames,
   ]).slice(1);
-  const report = createCsv(results);
+  const packagedNameByResultIndex = new Map<number, string>();
+  for (const [index, item] of successful.entries()) {
+    const name = resolvedNames[index];
+    if (name !== undefined) {
+      packagedNameByResultIndex.set(item.resultIndex, name);
+    }
+  }
+  const reportResults = results.map((result, resultIndex) => {
+    const packagedName = packagedNameByResultIndex.get(resultIndex);
+    return packagedName === undefined
+      ? result
+      : {
+          ...result,
+          relativePath: packagedName,
+          outputName: basename(packagedName),
+        };
+  });
+  const report = createCsv(reportResults);
 
   function* inputs() {
-    for (const [index, result] of successful.entries()) {
+    for (const [index, item] of successful.entries()) {
       const name = resolvedNames[index];
       if (name === undefined) {
         throw new Error("Missing resolved ZIP entry name");
       }
       yield {
-        input: result.output,
+        input: item.result.output,
         name: `${ZIP_ROOT}${name}`,
         lastModified: now,
       };
