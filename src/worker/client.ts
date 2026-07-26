@@ -25,6 +25,7 @@ export interface WorkerClientLike {
   process(payload: ProcessRequest): Promise<ProcessResult>;
   cancelAll(): void;
   ping?(): Promise<void>;
+  dispose?(): void;
 }
 
 type WorkerFactory = () => WorkerLike;
@@ -120,13 +121,15 @@ function isResponse(value: unknown): value is WorkerResponse {
 
 /**
  * A single reusable worker connection. Cancellation replaces the worker
- * generation, so subsequent requests never share state with cancelled work.
+ * generation, while disposal rejects pending work and terminates without
+ * replacement.
  */
 export class WorkerClient implements WorkerClientLike {
   private worker: WorkerLike | null = null;
   private detachWorkerListeners: (() => void) | null = null;
   private generation = 0;
   private sequence = 0;
+  private disposed = false;
   private readonly pending = new Map<string, PendingRequest>();
 
   constructor(private readonly createWorker: WorkerFactory = defaultWorkerFactory) {}
@@ -142,6 +145,7 @@ export class WorkerClient implements WorkerClientLike {
   cancelAll(): void {
     this.rejectAll(cancelledError());
     this.destroyWorker();
+    if (this.disposed) return;
     // Eager replacement makes readiness after cancellation deterministic.
     // A constructor failure is retried by the next request.
     try {
@@ -151,11 +155,22 @@ export class WorkerClient implements WorkerClientLike {
     }
   }
 
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.rejectAll(cancelledError());
+    this.destroyWorker();
+  }
+
   private send<T>(
     kind: "process" | "ping",
     payload?: ProcessRequest,
   ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      if (this.disposed) {
+        reject(cancelledError());
+        return;
+      }
       let worker: WorkerLike;
       try {
         worker = this.ensureWorker();

@@ -113,6 +113,58 @@ function inputs() {
   };
 }
 
+function dropZone(): Element {
+  return screen
+    .getByRole("button", { name: "添加图片" })
+    .closest(".drop-zone")!;
+}
+
+function pendingDirectoryDrop(folderName: string) {
+  let release!: (entries: unknown[]) => void;
+  let firstRead = true;
+  const reader = {
+    readEntries(success: (entries: unknown[]) => void) {
+      if (firstRead) {
+        firstRead = false;
+        release = success;
+        return;
+      }
+      success([]);
+    },
+  };
+  const root = {
+    isFile: false,
+    isDirectory: true,
+    name: folderName,
+    fullPath: `/${folderName}`,
+    createReader: () => reader,
+  };
+  return {
+    transfer: {
+      items: [
+        {
+          kind: "file",
+          webkitGetAsEntry: () => root,
+        },
+      ],
+      files: [],
+    },
+    release(source: File) {
+      release([
+        {
+          isFile: true,
+          isDirectory: false,
+          name: source.name,
+          fullPath: `/${folderName}/${source.name}`,
+          file(success: (value: File) => void) {
+            success(source);
+          },
+        },
+      ]);
+    },
+  };
+}
+
 async function addFiles(files: File[], input?: HTMLInputElement) {
   fireEvent.change(input ?? inputs().files, {
     target: { files },
@@ -169,6 +221,89 @@ describe("browser-local XMP workbench", () => {
     await userEvent.click(screen.getByRole("button", { name: "清空列表" }));
     expect(screen.queryByText("a.png")).not.toBeInTheDocument();
     expect(screen.queryByText("b.png")).not.toBeInTheDocument();
+  });
+
+  it("invalidates a slow folder drop when the user clears the batch", async () => {
+    const inspectFiles = vi.fn(async (sources: File[]) =>
+      sources.map((source) => selectedImage(source, source.name)),
+    );
+    render(<App dependencies={dependencies({ inspectFiles })} />);
+    await addFiles([file("existing.png")]);
+    const slow = pendingDirectoryDrop("slow");
+
+    fireEvent.drop(dropZone(), { dataTransfer: slow.transfer });
+    expect(await screen.findByRole("status")).toHaveTextContent("正在读取");
+    expect(
+      screen.getByRole("radio", { name: "保持原格式并写入标签" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "选择图片" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "开始处理" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "清空列表" }));
+    slow.release(file("late.png"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+
+    expect(screen.queryByText("existing.png")).not.toBeInTheDocument();
+    expect(screen.queryByText("late.png")).not.toBeInTheDocument();
+    expect(inspectFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses latest-wins semantics for overlapping folder drops", async () => {
+    const inspectFiles = vi.fn(async (sources: File[]) =>
+      sources.map((source) => selectedImage(source, source.name)),
+    );
+    render(<App dependencies={dependencies({ inspectFiles })} />);
+    const first = pendingDirectoryDrop("first");
+    const second = pendingDirectoryDrop("second");
+
+    fireEvent.drop(dropZone(), { dataTransfer: first.transfer });
+    fireEvent.drop(dropZone(), { dataTransfer: second.transfer });
+    second.release(file("newer.png"));
+    expect(await screen.findByText("newer.png")).toBeInTheDocument();
+
+    first.release(file("older.png"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(inspectFiles).toHaveBeenCalledTimes(1);
+    expect(inspectFiles).toHaveBeenCalledWith([
+      expect.objectContaining({ name: "newer.png" }),
+    ]);
+    expect(screen.queryByText("older.png")).not.toBeInTheDocument();
+  });
+
+  it("keeps start disabled through traversal and inspection", async () => {
+    let resolveInspection!: (images: SelectedImage[]) => void;
+    const inspectFiles = vi
+      .fn()
+      .mockImplementationOnce(async (sources: File[]) =>
+        sources.map((source) => selectedImage(source, source.name)),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<SelectedImage[]>((resolve) => {
+            resolveInspection = resolve;
+          }),
+      );
+    const runBatch = vi.fn(async () => []);
+    render(<App dependencies={dependencies({ inspectFiles, runBatch })} />);
+    await addFiles([file("ready.png")]);
+    const slow = pendingDirectoryDrop("slow");
+
+    fireEvent.drop(dropZone(), { dataTransfer: slow.transfer });
+    const start = screen.getByRole("button", { name: "开始处理" });
+    expect(start).toBeDisabled();
+    fireEvent.click(start);
+    expect(runBatch).not.toHaveBeenCalled();
+
+    const incoming = file("incoming.png");
+    slow.release(incoming);
+    await waitFor(() => expect(inspectFiles).toHaveBeenCalledTimes(2));
+    expect(start).toBeDisabled();
+    resolveInspection([selectedImage(incoming, "incoming")]);
+
+    await waitFor(() => expect(start).toBeEnabled());
+    expect(screen.getByText("ready.png")).toBeInTheDocument();
+    expect(screen.getByText("incoming.png")).toBeInTheDocument();
   });
 
   it("exposes an accessible folder input with webkitdirectory", () => {
@@ -938,5 +1073,90 @@ describe("browser-local XMP workbench", () => {
       } as unknown as DataTransfer),
     ).resolves.toEqual([]);
     expect(cyclicReader).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps distinct raw entry paths even when safe output paths collide", async () => {
+    const sources = [
+      file("a?.png"),
+      file("a*.png"),
+      file("AUX.png"),
+      file("AUX-file.png"),
+    ];
+    const entries = sources.map((source) => ({
+      isFile: true,
+      isDirectory: false,
+      name: source.name,
+      fullPath: `/folder/${source.name}`,
+      file(success: (value: File) => void) {
+        success(source);
+      },
+    }));
+    let read = false;
+    const directory = {
+      isFile: false,
+      isDirectory: true,
+      name: "folder",
+      fullPath: "/folder",
+      createReader: () => ({
+        readEntries(success: (values: unknown[]) => void) {
+          success(read ? [] : entries);
+          read = true;
+        },
+      }),
+    };
+
+    const collected = await collectDroppedFiles({
+      items: [
+        {
+          kind: "file",
+          webkitGetAsEntry: () => directory,
+        },
+      ],
+      files: [],
+    } as unknown as DataTransfer);
+
+    expect(collected).toHaveLength(4);
+    expect(collected.map(relativePathForFile)).toEqual([
+      "folder/a.png",
+      "folder/a.png",
+      "folder/AUX-file.png",
+      "folder/AUX-file.png",
+    ]);
+  });
+
+  it("disposes injected dependencies on unmount", () => {
+    const dispose = vi.fn();
+    const services = { ...dependencies(), dispose };
+    const view = render(<App dependencies={services} />);
+
+    view.unmount();
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(services.cancelBatch).not.toHaveBeenCalled();
+  });
+
+  it("only falls back to cancellation on unmount for an active batch", async () => {
+    const idleServices = dependencies();
+    const idleView = render(<App dependencies={idleServices} />);
+    idleView.unmount();
+    expect(idleServices.cancelBatch).not.toHaveBeenCalled();
+
+    let resolveBatch!: (results: ProcessResult[]) => void;
+    const runBatch = vi.fn(
+      () =>
+        new Promise<ProcessResult[]>((resolve) => {
+          resolveBatch = resolve;
+        }),
+    );
+    const activeServices = dependencies({ runBatch });
+    const activeView = render(<App dependencies={activeServices} />);
+    await addFiles([file("active.png")]);
+    await userEvent.click(screen.getByRole("button", { name: "开始处理" }));
+    await waitFor(() => expect(runBatch).toHaveBeenCalledTimes(1));
+
+    activeView.unmount();
+
+    expect(activeServices.cancelBatch).toHaveBeenCalledTimes(1);
+    resolveBatch([]);
   });
 });

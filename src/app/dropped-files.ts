@@ -138,13 +138,14 @@ export async function collectDroppedFiles(
   }
 
   const files: File[] = [];
-  const seenPaths = new Set<string>();
+  const seenEntries = new WeakSet<object>();
+  const seenRawPaths = new Set<string>();
   let traversedEntries = 0;
   let readBatches = 0;
 
   const traverse = async (
     entry: LegacyEntry,
-    parentPath: string,
+    parentRawPath: string,
     depth: number,
   ): Promise<void> => {
     if (depth > MAX_DIRECTORY_DEPTH) {
@@ -154,13 +155,23 @@ export async function collectDroppedFiles(
       );
     }
 
+    const rawPath =
+      entry.fullPath || `${parentRawPath}/${entry.name}`;
+    const rawIdentity =
+      `${entry.isDirectory ? "d" : "f"}:${rawPath}`;
+    if (
+      seenEntries.has(entry) ||
+      seenRawPaths.has(rawIdentity)
+    ) {
+      return;
+    }
+    seenEntries.add(entry);
+    seenRawPaths.add(rawIdentity);
+
     const entryPath = sanitizeDropPath(
-      entry.fullPath || `${parentPath}/${entry.name}`,
+      rawPath,
       entry.name,
     );
-    const identity = `${entry.isDirectory ? "d" : "f"}:${entryPath}`;
-    if (seenPaths.has(identity)) return;
-    seenPaths.add(identity);
 
     traversedEntries += 1;
     if (traversedEntries > MAX_TRAVERSED_ENTRIES) {
@@ -202,7 +213,7 @@ export async function collectDroppedFiles(
         throw tooManyFiles();
       }
       for (const child of batch) {
-        await traverse(child, entryPath, depth + 1);
+        await traverse(child, rawPath, depth + 1);
       }
     }
   };

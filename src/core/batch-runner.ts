@@ -92,6 +92,7 @@ export class BatchRunner {
   private readonly conversionClients: readonly WorkerClientLike[];
   private readonly metadataClients: readonly WorkerClientLike[];
   private active: ActiveRun | null = null;
+  private disposed = false;
 
   constructor(options: BatchRunnerOptions = {}) {
     this.conversionClients =
@@ -113,6 +114,12 @@ export class BatchRunner {
     requests: readonly ProcessRequest[],
     onProgress: (progress: BatchProgress) => void,
   ): Promise<ProcessResult[]> {
+    if (this.disposed) {
+      throw new ProcessingError(
+        "INVALID_MODE",
+        "后台处理器已关闭，请刷新页面后重试。",
+      );
+    }
     if (this.active !== null) {
       throw new ProcessingError(
         "INVALID_MODE",
@@ -176,19 +183,41 @@ export class BatchRunner {
     if (context === null || context.cancelled) {
       return;
     }
-    context.cancelled = true;
-
-    context.requests.forEach((request, index) => {
-      if (!context.started[index] && !context.settled[index]) {
-        this.settle(context, index, cancellationResult(request));
-      }
-    });
+    this.markCancelled(context);
     for (const client of [
       ...this.conversionClients,
       ...this.metadataClients,
     ]) {
       client.cancelAll();
     }
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.active !== null && !this.active.cancelled) {
+      this.markCancelled(this.active);
+    }
+    const clients = new Set([
+      ...this.conversionClients,
+      ...this.metadataClients,
+    ]);
+    for (const client of clients) {
+      if (client.dispose !== undefined) {
+        client.dispose();
+      } else {
+        client.cancelAll();
+      }
+    }
+  }
+
+  private markCancelled(context: ActiveRun): void {
+    context.cancelled = true;
+    context.requests.forEach((request, index) => {
+      if (!context.started[index] && !context.settled[index]) {
+        this.settle(context, index, cancellationResult(request));
+      }
+    });
   }
 
   private startLane(

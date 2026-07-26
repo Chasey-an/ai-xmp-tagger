@@ -25,7 +25,10 @@ import type { ProcessRequest, ProcessResult } from "../core/process-file";
 import type { ProcessingMode } from "../core/types";
 import { BatchPreview } from "./BatchPreview";
 import { DownloadPanel } from "./DownloadPanel";
-import { relativePathForFile } from "./dropped-files";
+import {
+  collectDroppedFiles,
+  relativePathForFile,
+} from "./dropped-files";
 import { FileDropZone } from "./FileDropZone";
 import { HelpSections } from "./HelpSections";
 import { ModeSelector } from "./ModeSelector";
@@ -41,6 +44,7 @@ export interface AppDependencies {
   ): Promise<ProcessResult[]>;
   cancelBatch(): void;
   download(blob: Blob, filename: string): void;
+  dispose?(): void;
 }
 
 interface AppProps {
@@ -72,6 +76,7 @@ function createDefaultDependencies(): AppDependencies {
     runBatch: (requests, onProgress) =>
       runner.run(requests, onProgress),
     cancelBatch: () => runner.cancel(),
+    dispose: () => runner.dispose(),
     download: (blob, filename) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -192,6 +197,10 @@ export function App({ dependencies }: AppProps) {
   const [outputsDownloaded, setOutputsDownloaded] = useState(false);
   const runGeneration = useRef(0);
   const intakeGeneration = useRef(0);
+  const imagesRef = useRef<SelectedImage[]>([]);
+  const modeRef = useRef<ProcessingMode>("jpeg-and-xmp");
+  const phaseRef = useRef<AppPhase>("idle");
+  const intakeBusyRef = useRef(false);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
   const locked = phase === "running" || phase === "stopping";
 
@@ -232,46 +241,93 @@ export function App({ dependencies }: AppProps) {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [outputsDownloaded, successful.length]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    return () => {
       runGeneration.current += 1;
       intakeGeneration.current += 1;
-    },
-    [],
-  );
+      if (services.dispose !== undefined) {
+        services.dispose();
+      } else if (phaseRef.current === "running") {
+        services.cancelBatch();
+      }
+    };
+  }, [services]);
 
-  const addFiles = async (files: File[]) => {
-    if (locked || files.length === 0) return;
+  const isLocked = () =>
+    phaseRef.current === "running" ||
+    phaseRef.current === "stopping";
+
+  const beginIntake = (): number | null => {
+    if (isLocked()) return null;
     const generation = ++intakeGeneration.current;
-    setError(null);
+    intakeBusyRef.current = true;
     setIntakeBusy(true);
+    setError(null);
+    return generation;
+  };
+
+  const finishIntake = (generation: number) => {
+    if (generation !== intakeGeneration.current) return;
+    intakeBusyRef.current = false;
+    setIntakeBusy(false);
+  };
+
+  const invalidateIntake = () => {
+    intakeGeneration.current += 1;
+    intakeBusyRef.current = false;
+    setIntakeBusy(false);
+  };
+
+  const commitImages = (next: SelectedImage[]) => {
+    const policy = applyBatchPolicy(next);
+    const nextPhase: AppPhase = next.length > 0 ? "ready" : "idle";
+    imagesRef.current = next;
+    phaseRef.current = nextPhase;
+    setImages(next);
+    setBatchWarning(policy.warning);
+    setPhase(nextPhase);
+  };
+
+  const runIntake = async (
+    loadFiles: () => Promise<File[]>,
+  ) => {
+    const generation = beginIntake();
+    if (generation === null) return;
     try {
+      const files = await loadFiles();
+      if (generation !== intakeGeneration.current) return;
+      if (files.length === 0) return;
       const inspected = await services.inspectFiles(files);
       if (generation !== intakeGeneration.current) return;
-      const merged = mergeSelectedImages(images, inspected);
-      const policy = applyBatchPolicy(merged);
-      setImages(merged);
-      setBatchWarning(policy.warning);
-      setPhase(merged.length > 0 ? "ready" : "idle");
+      const merged = mergeSelectedImages(imagesRef.current, inspected);
+      commitImages(merged);
     } catch (error) {
       if (generation === intakeGeneration.current) {
         setError(safeIntakeError(error));
       }
     } finally {
-      if (generation === intakeGeneration.current) {
-        setIntakeBusy(false);
-      }
+      finishIntake(generation);
     }
   };
 
+  const addFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    void runIntake(async () => files);
+  };
+
+  const addDroppedFiles = (transfer: DataTransfer) => {
+    // A newer drop invalidates an older in-flight traversal. This
+    // latest-wins rule prevents out-of-order traversal completions from
+    // replacing or merging into newer user intent.
+    void runIntake(() => collectDroppedFiles(transfer));
+  };
+
   const updateImages = (next: SelectedImage[]) => {
-    intakeGeneration.current += 1;
-    setImages(next);
+    if (isLocked()) return;
+    invalidateIntake();
     setError(null);
     try {
-      const policy = applyBatchPolicy(next);
-      setBatchWarning(policy.warning);
-      setPhase(next.length > 0 ? "ready" : "idle");
+      commitImages(next);
     } catch (error) {
       setBatchWarning(null);
       setError(safeIntakeError(error));
@@ -279,10 +335,17 @@ export function App({ dependencies }: AppProps) {
   };
 
   const start = async () => {
-    if (phase !== "ready" || images.length === 0) return;
+    if (
+      phaseRef.current !== "ready" ||
+      intakeBusyRef.current ||
+      imagesRef.current.length === 0
+    ) {
+      return;
+    }
     const generation = ++runGeneration.current;
-    const selectedSnapshot = [...images];
-    const modeSnapshot = mode;
+    intakeGeneration.current += 1;
+    const selectedSnapshot = [...imagesRef.current];
+    const modeSnapshot = modeRef.current;
     const requests: ProcessRequest[] = selectedSnapshot.map((image) => ({
       id: image.id,
       file: image.file,
@@ -294,6 +357,7 @@ export function App({ dependencies }: AppProps) {
     setResults([]);
     setOutputsDownloaded(false);
     setProgress({ ...EMPTY_PROGRESS, total: requests.length });
+    phaseRef.current = "running";
     setPhase("running");
 
     try {
@@ -310,18 +374,21 @@ export function App({ dependencies }: AppProps) {
         enrichResults(workerResults, selectedSnapshot, modeSnapshot),
       );
       setResultMode(modeSnapshot);
+      phaseRef.current = "complete";
       setPhase("complete");
     } catch {
       if (generation === runGeneration.current) {
         setError(safeErrorMessage("batch"));
         setResults([]);
+        phaseRef.current = "complete";
         setPhase("complete");
       }
     }
   };
 
   const cancel = () => {
-    if (phase !== "running") return;
+    if (phaseRef.current !== "running") return;
+    phaseRef.current = "stopping";
     setPhase("stopping");
     services.cancelBatch();
   };
@@ -362,7 +429,9 @@ export function App({ dependencies }: AppProps) {
 
   const newBatch = () => {
     runGeneration.current += 1;
-    intakeGeneration.current += 1;
+    invalidateIntake();
+    imagesRef.current = [];
+    phaseRef.current = "idle";
     setImages([]);
     setBatchWarning(null);
     setProgress(EMPTY_PROGRESS);
@@ -403,17 +472,20 @@ export function App({ dependencies }: AppProps) {
             </section>
             <ModeSelector
               value={mode}
-              disabled={locked}
+              disabled={locked || intakeBusy}
               hasBmp={images.some((image) => image.format === "bmp")}
-              onChange={setMode}
+              onChange={(nextMode) => {
+                if (!isLocked() && !intakeBusyRef.current) {
+                  modeRef.current = nextMode;
+                  setMode(nextMode);
+                }
+              }}
             />
             <FileDropZone
               disabled={locked}
               busy={intakeBusy}
               onFiles={addFiles}
-              onDropError={(dropError) =>
-                setError(safeIntakeError(dropError))
-              }
+              onDrop={addDroppedFiles}
             />
             <BatchPreview
               images={images}
@@ -422,7 +494,9 @@ export function App({ dependencies }: AppProps) {
               disabled={locked}
               mode={mode}
               onRemove={(id) =>
-                updateImages(images.filter((image) => image.id !== id))
+                updateImages(
+                  imagesRef.current.filter((image) => image.id !== id),
+                )
               }
               onClear={() => updateImages([])}
             />

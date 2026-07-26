@@ -59,6 +59,7 @@ class TrackingClient implements WorkerClientLike {
   readonly started: ProcessRequest[] = [];
   readonly pending = new Map<string, ReturnType<typeof deferred<ProcessResult>>>();
   cancelCount = 0;
+  disposeCount = 0;
   active = 0;
   maximum = 0;
 
@@ -78,6 +79,13 @@ class TrackingClient implements WorkerClientLike {
     this.cancelCount += 1;
     for (const operation of this.pending.values()) {
       operation.reject(new ProcessingError("CANCELLED", "cancelled"));
+    }
+  }
+
+  dispose(): void {
+    this.disposeCount += 1;
+    for (const operation of this.pending.values()) {
+      operation.reject(new ProcessingError("CANCELLED", "disposed"));
     }
   }
 
@@ -209,6 +217,37 @@ describe("BatchRunner", () => {
     await flush();
     metadata.finish("again");
     await expect(second).resolves.toMatchObject([{ id: "again", state: "checked" }]);
+  });
+
+  it("disposes active lanes without creating replacement workers", async () => {
+    const conversion = new TrackingClient();
+    const metadata = new TrackingClient();
+    const runner = new BatchRunner({
+      conversionClients: [conversion],
+      metadataClients: [metadata],
+    });
+    const running = runner.run(
+      [
+        request("convert", "png", "jpeg-and-xmp"),
+        request("metadata"),
+        request("queued"),
+      ],
+      () => undefined,
+    );
+    await flush();
+
+    runner.dispose();
+
+    await expect(running).resolves.toSatisfy((results: ProcessResult[]) =>
+      results.every(({ state }) => state === "cancelled"),
+    );
+    expect(conversion.disposeCount).toBe(1);
+    expect(metadata.disposeCount).toBe(1);
+    expect(conversion.cancelCount).toBe(0);
+    expect(metadata.cancelCount).toBe(0);
+    await expect(
+      runner.run([request("after-dispose")], () => undefined),
+    ).rejects.toMatchObject({ code: "INVALID_MODE" });
   });
 
   it("emits exact progress invariants initially and once per completed item", async () => {
@@ -515,6 +554,28 @@ describe("WorkerClient", () => {
     });
     await expect(later).resolves.toMatchObject({ id: "later" });
     expect(secondWorker.listeners.get("message")?.size).toBe(1);
+  });
+
+  it("disposes pending work without eagerly creating a replacement", async () => {
+    const workers: FakeWorker[] = [];
+    const client = new WorkerClient(() => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    });
+    const pending = client.process(request("dispose-me"));
+    const worker = workers[0]!;
+
+    client.dispose();
+
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(worker.terminated).toBe(true);
+    expect(worker.listeners.get("message")?.size).toBe(0);
+    expect(workers).toHaveLength(1);
+    await expect(client.process(request("after-dispose"))).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+    expect(workers).toHaveLength(1);
   });
 
   it("contains constructor, runtime, message, and postMessage failures safely", async () => {

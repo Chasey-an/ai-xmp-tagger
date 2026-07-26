@@ -1,7 +1,5 @@
 import { useRef } from "preact/hooks";
 
-import { collectDroppedFiles } from "./dropped-files";
-
 const ACCEPT =
   ".jpg,.jpeg,.png,.webp,.bmp,image/jpeg,image/png,image/webp,image/bmp";
 
@@ -9,7 +7,7 @@ interface FileDropZoneProps {
   disabled: boolean;
   busy: boolean;
   onFiles: (files: File[]) => void;
-  onDropError: (error: unknown) => void;
+  onDrop: (transfer: DataTransfer) => void;
 }
 
 function filesFrom(list: FileList | null): File[] {
@@ -20,34 +18,37 @@ export function FileDropZone({
   disabled,
   busy,
   onFiles,
-  onDropError,
+  onDrop,
 }: FileDropZoneProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const controlsDisabled = disabled || busy;
 
   const openFiles = () => {
-    if (!disabled) fileInput.current?.click();
+    if (!controlsDisabled) fileInput.current?.click();
   };
 
   return (
     <div
-      class={`drop-zone${disabled ? " is-disabled" : ""}`}
+      class={
+        `drop-zone${disabled ? " is-disabled" : ""}` +
+        `${busy ? " is-busy" : ""}`
+      }
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
         const transfer = event.dataTransfer;
         if (disabled || transfer === null) return;
-        void collectDroppedFiles(transfer)
-          .then(onFiles)
-          .catch(onDropError);
+        onDrop(transfer);
       }}
     >
       <div
         class="drop-target"
         role="button"
         aria-label="添加图片"
-        tabIndex={disabled ? -1 : 0}
+        tabIndex={controlsDisabled ? -1 : 0}
         aria-disabled={disabled}
+        aria-busy={busy}
         onClick={openFiles}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -66,7 +67,7 @@ export function FileDropZone({
         <button
           class="button button-primary"
           type="button"
-          disabled={disabled}
+          disabled={controlsDisabled}
           onClick={openFiles}
         >
           选择图片
@@ -74,7 +75,7 @@ export function FileDropZone({
         <button
           class="button button-secondary"
           type="button"
-          disabled={disabled}
+          disabled={controlsDisabled}
           onClick={() => folderInput.current?.click()}
         >
           选择文件夹
@@ -88,7 +89,7 @@ export function FileDropZone({
         multiple
         accept={ACCEPT}
         aria-label="选择图片文件"
-        disabled={disabled}
+        disabled={controlsDisabled}
         onChange={(event) => {
           onFiles(filesFrom(event.currentTarget.files));
           event.currentTarget.value = "";
@@ -104,7 +105,7 @@ export function FileDropZone({
         multiple
         accept={ACCEPT}
         aria-label="选择图片文件夹"
-        disabled={disabled}
+        disabled={controlsDisabled}
         onChange={(event) => {
           onFiles(filesFrom(event.currentTarget.files));
           event.currentTarget.value = "";

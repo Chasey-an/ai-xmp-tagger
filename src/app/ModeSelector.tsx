@@ -40,7 +40,10 @@ export function ModeSelector({
       <legend>1. 选择处理模式</legend>
       <div class="mode-options">
         {MODES.map((mode) => (
-          <label class={`mode-option${value === mode.value ? " is-selected" : ""}`}>
+          <label
+            key={mode.value}
+            class={`mode-option${value === mode.value ? " is-selected" : ""}`}
+          >
             <span class="mode-option-title">
               <input
                 type="radio"
