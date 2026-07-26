@@ -32,7 +32,7 @@ const committedOutputPath = path.join(
 const lockPath = path.join(projectDirectory, "social-card.lock.json");
 const lockedRelativePaths = [
   "social-card.html",
-  "public/images/app-home.png",
+  "public/images/browser-workbench.png",
   "scripts/capture-social-card.mjs",
   "public/images/social-card.png",
 ];
@@ -140,7 +140,7 @@ async function renderSocialCard(outputPath) {
       "PingFang SC is unavailable on this macOS capture environment",
     );
     assert.deepEqual(readiness.images, [
-      { complete: true, naturalWidth: 1440, naturalHeight: 900 },
+      { complete: true, naturalWidth: 1440, naturalHeight: 1560 },
     ]);
 
     await page.screenshot({
