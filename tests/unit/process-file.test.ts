@@ -244,10 +244,74 @@ describe("processFile mode matrix", () => {
       reencoded: false,
     });
     expect(result.message).toMatch(/BMP.*检查|检查.*BMP/);
+    expect(result.message).toContain("转为高清 JPEG 并写入标签");
   });
 });
 
 describe("processFile XMP and safety invariants", () => {
+  it.each([
+    {
+      label: "exactly one target",
+      xmp: packet({ subjects: [TARGET_SUBJECT] }),
+      expected: {
+        subjectExists: true,
+        targetTagCount: 1,
+        message: /检查通过.*1 个/,
+      },
+    },
+    {
+      label: "no dc:subject field",
+      xmp: null,
+      expected: {
+        subjectExists: false,
+        targetTagCount: 0,
+        message: /未找到.*dc:subject.*写入模式/,
+      },
+    },
+    {
+      label: "dc:subject without the target",
+      xmp: packet({ subjects: [OTHER_SUBJECT] }),
+      expected: {
+        subjectExists: true,
+        targetTagCount: 0,
+        message: /已找到.*dc:subject.*未找到.*目标标签.*写入模式/,
+      },
+    },
+    {
+      label: "duplicate targets",
+      xmp: packet({
+        subjects: [TARGET_SUBJECT, TARGET_SUBJECT],
+      }),
+      expected: {
+        subjectExists: true,
+        targetTagCount: 2,
+        message: /检查未通过.*重复.*2 次.*归一化/,
+      },
+    },
+  ])(
+    "verify-only reports $label as a distinct Chinese result",
+    async ({ xmp, expected }) => {
+      const input =
+        xmp === null
+          ? knownValidJpeg1x1()
+          : writeJpegXmp(knownValidJpeg1x1(), xmp);
+
+      const result = await processFile(
+        request("jpeg", "verify-only", input),
+        conversionDependencies,
+      );
+
+      expect(result).toMatchObject({
+        state: "checked",
+        output: null,
+        outputFormat: null,
+        subjectExists: expected.subjectExists,
+        targetTagCount: expected.targetTagCount,
+      });
+      expect(result.message).toMatch(expected.message);
+    },
+  );
+
   it("normalizes duplicate targets to one while preserving other subjects", async () => {
     const input = writeJpegXmp(
       knownValidJpeg1x1(),
@@ -323,6 +387,7 @@ describe("processFile XMP and safety invariants", () => {
 
     expect(result.state).toBe("failed");
     expect(result.message).toMatch(/动态 WebP/);
+    expect(result.message).toContain("保持原格式并写入 XMP");
     expect(decodeRaster).not.toHaveBeenCalled();
   });
 
@@ -353,6 +418,24 @@ describe("processFile XMP and safety invariants", () => {
     expect(result.state).toBe("failed");
     expect(result.message).toMatch(/XMP/);
     expect(result.message).not.toContain("process-file.ts");
+  });
+
+  it("gives an actionable, non-overwriting next step for XMP conflicts", async () => {
+    const conflictPacket = packet({ subjects: [OTHER_SUBJECT] }).replace(
+      "</rdf:Description>",
+      "<dc:subject><rdf:Bag><rdf:li>second</rdf:li></rdf:Bag></dc:subject>" +
+        "</rdf:Description>",
+    );
+    const input = writePngXmp(knownValidPng1x1(), conflictPacket);
+
+    const result = await processFile(
+      request("png", "original-and-xmp", input),
+      conversionDependencies,
+    );
+
+    expect(result.state).toBe("failed");
+    expect(result.message).toMatch(/冲突.*清理|冲突.*重新导出/);
+    expect(result.message).toMatch(/不会自动覆盖|不会静默覆盖/);
   });
 
   it("rejects an unsupported runtime format without throwing", async () => {

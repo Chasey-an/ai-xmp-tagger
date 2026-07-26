@@ -292,9 +292,16 @@ function successMessage(reencoded: boolean): string {
 }
 
 function checkedMessage(check: SubjectCheck): string {
-  return check.targetTagCount > 0
-    ? `已检查：XMP dc:subject 中存在 ${check.targetTagCount} 个目标标签。`
-    : "已检查：XMP dc:subject 中未发现目标标签。";
+  if (!check.subjectExists) {
+    return "检查完成：未找到 XMP dc:subject 字段。请使用写入模式添加目标标签。";
+  }
+  if (check.targetTagCount === 0) {
+    return "检查完成：已找到 XMP dc:subject 字段，但未找到目标标签。请使用写入模式添加。";
+  }
+  if (check.targetTagCount === 1) {
+    return "检查通过：XMP dc:subject 中包含且仅包含 1 个目标标签。";
+  }
+  return `检查未通过：目标标签重复出现 ${check.targetTagCount} 次。请使用写入模式归一化为 1 个。`;
 }
 
 function isCancellation(error: unknown): boolean {
@@ -321,7 +328,7 @@ function safeMessage(error: unknown): string {
   switch (error.code) {
     case "UNSUPPORTED_FORMAT":
       return /Animated WebP/.test(error.message)
-        ? "暂不支持动态 WebP 转换，请先导出为静态图片后重试。"
+        ? "暂不支持将动态 WebP 转换为 JPEG，请改用“保持原格式并写入 XMP”模式。"
         : "不支持该图片格式，请使用 JPEG、PNG、WebP 或 BMP。";
     case "LIMIT_EXCEEDED":
       return "图片超过安全处理上限，请缩小尺寸或减少元数据后重试。";
@@ -330,7 +337,7 @@ function safeMessage(error: unknown): string {
     case "INVALID_XMP":
       return "图片中的 XMP 元数据无效，请先清理元数据或重新导出图片。";
     case "XMP_CONFLICT":
-      return "图片包含冲突的 XMP 数据，暂时无法安全处理。";
+      return "图片包含冲突的 XMP 数据。请清理冲突元数据或重新导出图片后再试；应用不会自动覆盖原数据。";
     case "EXTENDED_XMP_UNSUPPORTED":
       return "图片使用了暂不支持的扩展 XMP，请先重新导出图片。";
     case "DECODE_FAILED":
@@ -381,7 +388,7 @@ export async function processFile(
         request.id,
         startedAt,
         "failed",
-        "BMP 不包含受支持的 XMP 标签位置，无法使用“仅检查标签”模式。",
+        "BMP 不包含受支持的 XMP 标签位置，无法使用“仅检查标签”模式。请改用“转为高清 JPEG 并写入标签”模式。",
       );
     }
 
