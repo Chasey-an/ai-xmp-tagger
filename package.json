@@ -10,6 +10,7 @@
     "build:conversion": "vite build --config vite.conversion.config.ts",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "test:browser-compat": "playwright test --config=playwright.browser-compat.config.ts",
     "test:conversion": "playwright test --config=playwright.conversion.config.js",
     "test:interop": "npm run build && node --test tests/interop/exiftool.test.mjs",
     "test": "npm run test:unit && npm run build && npm run capture:social:check && npm run test:e2e && npm run test:conversion",
