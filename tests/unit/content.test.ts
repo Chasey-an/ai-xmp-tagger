@@ -20,6 +20,9 @@ describe("browser-local product guidance", () => {
     expect(productCopy).toMatch(/浏览器.*(?:直接|本地).*(?:处理|写入|检查)/su);
     expect(productCopy).toContain("图片只在当前浏览器");
     expect(productCopy).toContain("不会上传");
+    expect(productCopy).toMatch(
+      /Netlify.*页面请求.*静态资源请求.*不会收到.*图片.*文件名.*处理结果/su,
+    );
     expect(productCopy).toContain("不接入统计");
     expect(productCopy).toContain("独立");
     expect(productCopy).toContain("非 Amazon 官方产品");
@@ -89,8 +92,12 @@ describe("Netlify static-hosting contract", () => {
       'Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"',
     );
     expect(config).toContain(
-      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
     );
+    const connectDirective =
+      config.match(/connect-src\s+([^;"]+)/u)?.[1]?.trim();
+    expect(connectDirective).toBe("'self'");
+    expect(connectDirective).not.toMatch(/https?:|data:|blob:/u);
     expect(config).toContain(
       'Cache-Control = "public, max-age=31536000, immutable"',
     );

@@ -1111,7 +1111,7 @@ Expected: FAIL on legacy download-page and GitHub Pages assertions.
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "no-referrer"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'none'; font-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self'; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/assets/*"
@@ -1123,6 +1123,12 @@ Expected: FAIL on legacy download-page and GitHub Pages assertions.
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 ```
+
+**2026-07-26 CSP erratum:** `connect-src 'self'` is required because the
+production Worker loads the hashed, self-hosted MozJPEG WASM asset with a
+same-origin fetch. It still forbids third-party connections. Netlify receives
+ordinary page and static-asset requests, but never receives selected images,
+filenames, or processing results.
 
 - [ ] **Step 4: Rewrite README and help copy**
 

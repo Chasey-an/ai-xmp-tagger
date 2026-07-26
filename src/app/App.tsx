@@ -549,6 +549,9 @@ export function App({ dependencies }: AppProps) {
         <p>
           AI XMP Tagger 是独立的浏览器本地工具，与 Amazon 无隶属或官方合作关系。
         </p>
+        <p>
+          Netlify 只会收到普通页面请求和静态资源请求；不会收到你选择的图片、文件名或处理结果。
+        </p>
       </footer>
     </>
   );
