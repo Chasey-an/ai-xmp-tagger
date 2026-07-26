@@ -1,5 +1,8 @@
 import type { ProcessResult } from "../process-file";
-import { sanitizeRelativePath } from "./names";
+import {
+  alignOutputNameToFormat,
+  sanitizeRelativePath,
+} from "./names";
 
 /**
  * Task 8 intentionally keeps ProcessResult worker-safe and does not carry the
@@ -37,7 +40,12 @@ function safeRelativePath(result: ReportableProcessResult): string {
     typeof result.outputName === "string" &&
     result.outputName.length > 0
   ) {
-    return sanitizeRelativePath(result.outputName);
+    return result.outputFormat === null
+      ? sanitizeRelativePath(result.outputName)
+      : alignOutputNameToFormat(
+          result.outputName,
+          result.outputFormat,
+        );
   }
   return basename(sanitizeRelativePath(result.id));
 }
@@ -50,7 +58,14 @@ function safeFilename(
     typeof result.outputName === "string" &&
     result.outputName.length > 0
   ) {
-    return basename(sanitizeRelativePath(result.outputName));
+    const safeOutputName =
+      result.outputFormat === null
+        ? sanitizeRelativePath(result.outputName)
+        : alignOutputNameToFormat(
+            result.outputName,
+            result.outputFormat,
+          );
+    return basename(safeOutputName);
   }
   return basename(relativePath);
 }
@@ -90,26 +105,30 @@ function protectFormula(value: string): string {
 function containsAbsoluteLocalPath(value: string): boolean {
   const windowsDrive =
     /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/u.test(value);
-  const windowsNetworkOrDevice = value.includes("\\\\");
+  const windowsNetworkOrDevice =
+    value.includes("\\\\");
+  const forwardSlashNetworkOrDevice =
+    /(?:^|[^:])\/\/[^/\s]+\/[^/\s]+/u.test(value);
   const commonPosixRoot =
     /\/(?:Users|home|private|var|tmp|Volumes|root|etc|opt|srv|mnt|media)\//iu.test(
       value,
     );
   const genericPosixAbsolute =
-    /(?:^|[\s("'`，。；;：])\/(?!\/)[^/\s]+\/[^/\s]+/u.test(
+    /(?:^|[\s("'`，。；;：=])\/(?!\/)[^/\s]+\/[^/\s]+/u.test(
       value,
     );
   const posixRootFile =
-    /(?:^|[\s("'`，。；;：])\/(?!\/)[^/\s]+(?=$|[\s,，。；;:：!?！？)"'])/u.test(
+    /(?:^|[\s("'`，。；;：=])\/(?!\/)[^/\s]+(?=$|[\s,，。；;:：!?！？)"'])/u.test(
       value,
     );
   const windowsCurrentDrive =
-    /(?:^|[\s("'`，。；;：])\\(?!\\)[^\\\r\n]+\\[^\\\r\n]+/u.test(
+    /(?:^|[\s("'`，。；;：=])\\(?!\\)[^\\\r\n]+\\[^\\\r\n]+/u.test(
       value,
     );
   return (
     windowsDrive ||
     windowsNetworkOrDevice ||
+    forwardSlashNetworkOrDevice ||
     commonPosixRoot ||
     genericPosixAbsolute ||
     posixRootFile ||

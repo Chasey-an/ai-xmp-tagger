@@ -9,12 +9,43 @@ const MAX_SEGMENT_BYTES = 120;
 const MAX_RELATIVE_PATH_BYTES = 512;
 
 const WINDOWS_RESERVED_BASENAME =
-  /^(?:CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])$/i;
+  /^(?:CON|PRN|AUX|NUL|CLOCK\$|COM(?:[1-9]|[¹²³])|LPT(?:[1-9]|[¹²³]))$/i;
 const REMOVED_CONTROLS =
   /[\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/gu;
 const WINDOWS_INVALID_CHARACTERS = /[<>:"|?*]/gu;
 
 const encoder = new TextEncoder();
+
+function toWellFormed(value: string): string {
+  const native = (
+    String.prototype as String & {
+      toWellFormed?: () => string;
+    }
+  ).toWellFormed;
+  if (typeof native === "function") {
+    return native.call(value);
+  }
+
+  let result = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += value[index] ?? "";
+        result += value[index + 1] ?? "";
+        index += 1;
+      } else {
+        result += "\uFFFD";
+      }
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      result += "\uFFFD";
+    } else {
+      result += value[index] ?? "";
+    }
+  }
+  return result;
+}
 
 function utf8Length(value: string): number {
   return encoder.encode(value).byteLength;
@@ -136,7 +167,7 @@ function boundRelativePath(segments: string[]): string {
 }
 
 export function sanitizeRelativePath(path: string): string {
-  const normalized = String(path)
+  const normalized = toWellFormed(String(path))
     .normalize("NFC")
     .replaceAll("\\", "/");
   const { relative, rooted } = stripPathRoot(normalized);
@@ -165,13 +196,7 @@ export function sanitizeRelativePath(path: string): string {
   );
 }
 
-function extensionFor(
-  mode: ProcessingMode,
-  format: ImageFormat,
-): string {
-  if (mode === "jpeg-and-xmp") {
-    return ".jpg";
-  }
+function extensionFor(format: ImageFormat): string {
   switch (format) {
     case "jpeg":
       return ".jpg";
@@ -186,20 +211,42 @@ function extensionFor(
 
 export function planOutputName(
   path: string,
-  mode: ProcessingMode,
+  _mode: ProcessingMode,
   format: ImageFormat,
 ): string {
   const safePath = sanitizeRelativePath(path);
   const segments = safePath.split("/");
   const filename = segments.pop() ?? "unnamed";
   const { stem } = splitExtension(filename);
-  const extension = extensionFor(mode, format);
+  const extension = extensionFor(format);
   const outputFilename = truncateSegment(stem, extension, "_xmp");
   return boundRelativePath([...segments, outputFilename]);
 }
 
-function collisionKey(path: string): string {
-  return path.normalize("NFC").toLocaleLowerCase("en-US");
+export function canonicalOutputNameKey(path: string): string {
+  return toWellFormed(path)
+    .normalize("NFC")
+    .toUpperCase()
+    .normalize("NFC");
+}
+
+/**
+ * Sanitizes an existing planned name and forces its extension to match the
+ * detected, actual output format without adding another `_xmp` suffix.
+ */
+export function alignOutputNameToFormat(
+  path: string,
+  format: ImageFormat,
+): string {
+  const safePath = sanitizeRelativePath(path);
+  const segments = safePath.split("/");
+  const filename = segments.pop() ?? "unnamed";
+  const dot = filename.lastIndexOf(".");
+  const stem = dot > 0 ? filename.slice(0, dot) : filename;
+  return boundRelativePath([
+    ...segments,
+    truncateSegment(stem, extensionFor(format)),
+  ]);
 }
 
 function withCollisionSuffix(path: string, sequence: number): string {
@@ -217,11 +264,13 @@ function withCollisionSuffix(path: string, sequence: number): string {
 
 export function resolveNameCollisions(paths: string[]): string[] {
   const safePaths = paths.map((path) => sanitizeRelativePath(path));
-  const reserved = new Set(safePaths.map(collisionKey));
+  const reserved = new Set(
+    safePaths.map(canonicalOutputNameKey),
+  );
   const used = new Set<string>();
 
   return safePaths.map((path) => {
-    const key = collisionKey(path);
+    const key = canonicalOutputNameKey(path);
     if (!used.has(key)) {
       used.add(key);
       return path;
@@ -230,13 +279,13 @@ export function resolveNameCollisions(paths: string[]): string[] {
     let sequence = 2;
     let candidate = withCollisionSuffix(path, sequence);
     while (
-      used.has(collisionKey(candidate)) ||
-      reserved.has(collisionKey(candidate))
+      used.has(canonicalOutputNameKey(candidate)) ||
+      reserved.has(canonicalOutputNameKey(candidate))
     ) {
       sequence += 1;
       candidate = withCollisionSuffix(path, sequence);
     }
-    used.add(collisionKey(candidate));
+    used.add(canonicalOutputNameKey(candidate));
     return candidate;
   });
 }

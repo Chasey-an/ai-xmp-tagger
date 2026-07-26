@@ -34,6 +34,9 @@ function result(
 interface ZipEntry {
   name: string;
   method: number;
+  crc32: number;
+  dosTime: number;
+  dosDate: number;
   bytes: Uint8Array;
 }
 
@@ -76,6 +79,7 @@ async function unzipStored(blob: Blob): Promise<ZipEntry[]> {
   for (let index = 0; index < entryCount; index += 1) {
     expect(readUint32(view, centralOffset)).toBe(0x02014b50);
     const method = view.getUint16(centralOffset + 10, true);
+    const crc32 = readUint32(view, centralOffset + 16);
     const compressedSize = readUint32(view, centralOffset + 20);
     const nameLength = view.getUint16(centralOffset + 28, true);
     const extraLength = view.getUint16(centralOffset + 30, true);
@@ -96,6 +100,9 @@ async function unzipStored(blob: Blob): Promise<ZipEntry[]> {
     entries.push({
       name,
       method,
+      crc32,
+      dosTime: view.getUint16(localOffset + 10, true),
+      dosDate: view.getUint16(localOffset + 12, true),
       bytes: bytes.slice(dataOffset, dataOffset + compressedSize),
     });
 
@@ -104,6 +111,17 @@ async function unzipStored(blob: Blob): Promise<ZipEntry[]> {
   }
 
   return entries;
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 describe("safe output names", () => {
@@ -138,6 +156,9 @@ describe("safe output names", () => {
       "CLOCK$",
       "com1.jpeg",
       "CON.foo.bar",
+      "COM¹.jpg",
+      "com²",
+      "LPT³.png",
       "COM9",
       "lpt1.png",
       "LPT9",
@@ -210,10 +231,29 @@ describe("safe output names", () => {
     expect(sanitized).not.toContain("\uFFFD");
   });
 
+  test("normalizes ill-formed Unicode before encoding and collision checks", () => {
+    expect(sanitizeRelativePath("bad\uD800.jpg")).toBe(
+      "bad\uFFFD.jpg",
+    );
+    expect(
+      resolveNameCollisions([
+        "Σ_xmp.jpg",
+        "ς_xmp.jpg",
+        "\uD800_xmp.jpg",
+        "\uFFFD_xmp.jpg",
+      ]),
+    ).toEqual([
+      "Σ_xmp.jpg",
+      "ς_xmp-2.jpg",
+      "\uFFFD_xmp.jpg",
+      "\uFFFD_xmp-2.jpg",
+    ]);
+  });
+
   test("uses deterministic extensions for all processing modes", () => {
     expect(
-      planOutputName("folder/source.png", "jpeg-and-xmp", "jpeg"),
-    ).toBe("folder/source_xmp.jpg");
+      planOutputName("folder/source.jpg", "jpeg-and-xmp", "png"),
+    ).toBe("folder/source_xmp.png");
     expect(
       planOutputName("folder/source.jpg", "original-and-xmp", "png"),
     ).toBe("folder/source_xmp.png");
@@ -350,6 +390,19 @@ describe("processing CSV", () => {
       result({
         message: String.raw`当前盘文件 \Users\Alice\secret.jpg 无法读取`,
       }),
+      result({
+        message: "转发 UNC 文件 //server/share/secret.jpg 失败",
+      }),
+      result({
+        message: "错误:/workspace/private/secret.jpg",
+      }),
+      result({
+        message: "路径=/workspace/private/secret.jpg",
+      }),
+      result({
+        message:
+          "帮助：https://example.com/help，错误:/workspace/private/secret.jpg",
+      }),
     ]);
 
     for (const leaked of [
@@ -367,6 +420,35 @@ describe("processing CSV", () => {
       expect(csv).not.toContain(leaked);
     }
     expect(csv).toContain("本地文件路径");
+  });
+
+  test("preserves ordinary prose and http URLs in safe messages", () => {
+    const message =
+      "支持 JPEG/PNG/WebP；帮助：https://example.com/help 和 http://example.org/docs";
+    const csv = createCsv([result({ message })]);
+    expect(csv).toContain(message);
+    expect(csv).not.toContain("本地文件路径");
+  });
+
+  test("aligns standalone CSV output names to actual output format", () => {
+    const csv = createCsv([
+      result({
+        relativePath: "folder/source.jpeg",
+        outputName:
+          "photo_xmp.this-is-a-very-long-fake-extension",
+        outputFormat: "png",
+        output: new Blob([
+          new Uint8Array([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+          ]),
+        ], { type: "image/png" }),
+      }),
+    ]);
+    expect(csv).toContain(
+      "folder/source.jpeg,photo_xmp.png,成功",
+    );
+    expect(csv).not.toContain("photo_xmp.jpg");
+    expect(csv).not.toContain("fake-extension");
   });
 });
 
@@ -479,6 +561,104 @@ describe("output ZIP", () => {
       "AI_XMP_Output/source_xmp.png",
     );
     expect(entries[0]?.name).not.toContain("private");
+  });
+
+  test("aligns ZIP and report names with the actual output format", async () => {
+    const pngMagic = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    const created = await createOutputZip(
+      [
+        result({
+          relativePath: "folder/source.jpg",
+          outputName: "source_xmp.jpg",
+          outputFormat: "png",
+          output: new Blob([pngMagic], { type: "image/png" }),
+        }),
+      ],
+      new Date(2026, 0, 2, 3, 4),
+    );
+    const entries = await unzipStored(created.blob);
+    expect(entries[0]?.name).toBe(
+      "AI_XMP_Output/folder/source_xmp.png",
+    );
+    expect(entries[0]?.bytes).toEqual(pngMagic);
+    expect(new TextDecoder().decode(entries[1]?.bytes)).toContain(
+      "folder/source_xmp.png,source_xmp.png",
+    );
+  });
+
+  test("snapshots mutable inputs before yielding to Blob streams", async () => {
+    let release = (): void => {
+      throw new Error("Gate was not initialized");
+    };
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const bytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    const delayed = new Blob([bytes], { type: "image/png" });
+    Object.defineProperty(delayed, "stream", {
+      configurable: true,
+      value: () =>
+        new ReadableStream<Uint8Array>({
+          async start(controller) {
+            await gate;
+            controller.enqueue(bytes);
+            controller.close();
+          },
+        }),
+    });
+    const mutable = result({
+      id: "snapshot",
+      relativePath: "before/source.png",
+      outputName: "source_xmp.png",
+      outputFormat: "png",
+      output: delayed,
+      message: "调用时消息",
+    });
+    const date = new Date(2026, 0, 2, 3, 4);
+
+    const pending = createOutputZip([mutable], date);
+    mutable.relativePath = "after/private.jpg";
+    mutable.outputName = "changed_xmp.jpg";
+    mutable.outputFormat = "jpeg";
+    mutable.output = new Blob([
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+    ], { type: "image/jpeg" });
+    mutable.message = "修改后消息";
+    date.setFullYear(2040);
+    release();
+
+    const created = await pending;
+    const entries = await unzipStored(created.blob);
+    expect(created.filename).toBe("AI_XMP_Output_20260102-0304.zip");
+    expect(entries[0]?.name).toBe(
+      "AI_XMP_Output/before/source_xmp.png",
+    );
+    expect(entries[0]?.bytes).toEqual(bytes);
+    expect(new TextDecoder().decode(entries[1]?.bytes)).toContain(
+      "调用时消息",
+    );
+    expect(new TextDecoder().decode(entries[1]?.bytes)).not.toContain(
+      "修改后消息",
+    );
+  });
+
+  test("writes valid CRCs and clamps dates to the DOS ZIP range", async () => {
+    const created = await createOutputZip(
+      [result()],
+      new Date(1970, 0, 1, 12, 34),
+    );
+    const entries = await unzipStored(created.blob);
+    expect(created.filename).toBe("AI_XMP_Output_19800101-0000.zip");
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.crc32).toBe(crc32(entry.bytes));
+      expect(((entry.dosDate >>> 9) & 0x7f) + 1980).toBe(1980);
+      expect(entry.dosTime).toBe(0);
+    }
   });
 
   test("creates a report-only archive when there are no successes", async () => {

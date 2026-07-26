@@ -6,6 +6,8 @@ import {
   type ReportableProcessResult,
 } from "./csv";
 import {
+  alignOutputNameToFormat,
+  canonicalOutputNameKey,
   planOutputName,
   resolveNameCollisions,
   sanitizeRelativePath,
@@ -46,7 +48,10 @@ function plannedEntryName(
     return planOutputName(source, "original-and-xmp", format);
   }
 
-  const safeOutputName = sanitizeRelativePath(result.outputName);
+  const safeOutputName = alignOutputNameToFormat(
+    result.outputName,
+    format,
+  );
   if (safeOutputName.includes("/")) {
     return safeOutputName;
   }
@@ -75,40 +80,99 @@ function archiveFilename(now: Date): string {
   return `AI_XMP_Output_${date}-${time}.zip`;
 }
 
+function dosSafeDate(now: Date): Date {
+  if (Number.isNaN(now.getTime())) {
+    throw new TypeError("ZIP timestamp must be a valid Date");
+  }
+  const year = now.getFullYear();
+  if (year < 1980) {
+    return new Date(1980, 0, 1, 0, 0, 0, 0);
+  }
+  if (year > 2107) {
+    return new Date(2107, 11, 31, 23, 59, 58, 999);
+  }
+  return new Date(now.getTime());
+}
+
+function snapshotResult(
+  result: ReportableProcessResult,
+): Readonly<ReportableProcessResult> {
+  const snapshot = {
+    id: result.id,
+    state: result.state,
+    output: result.output,
+    outputFormat: result.outputFormat,
+    outputName: result.outputName,
+    subjectExists: result.subjectExists,
+    targetTagCount: result.targetTagCount,
+    reencoded: result.reencoded,
+    message: result.message,
+    elapsedMs: result.elapsedMs,
+  };
+  return Object.freeze(
+    typeof result.relativePath === "string"
+      ? { ...snapshot, relativePath: result.relativePath }
+      : snapshot,
+  );
+}
+
+function assertUniqueZipNames(names: readonly string[]): void {
+  const canonicalNames = new Set<string>();
+  const encodedNames = new Set<string>();
+  const encoder = new TextEncoder();
+  for (const name of names) {
+    const canonical = canonicalOutputNameKey(name);
+    const encoded = Array.from(encoder.encode(name)).join(",");
+    if (
+      canonicalNames.has(canonical) ||
+      encodedNames.has(encoded)
+    ) {
+      throw new Error("Duplicate ZIP entry name after normalization");
+    }
+    canonicalNames.add(canonical);
+    encodedNames.add(encoded);
+  }
+}
+
 export async function createOutputZip(
   results: readonly ReportableProcessResult[],
   now: Date,
 ): Promise<{ filename: string; blob: Blob }> {
+  const snapshotDate = dosSafeDate(now);
+  const filename = archiveFilename(snapshotDate);
+  const snapshots = Object.freeze(results.map(snapshotResult));
   const successful: Array<{
-    result: ReportableProcessResult & {
-      output: Blob;
-      outputFormat: ImageFormat;
-    };
+    result: Readonly<ReportableProcessResult>;
+    output: Blob;
+    outputFormat: ImageFormat;
     resultIndex: number;
   }> = [];
-  for (const [resultIndex, result] of results.entries()) {
+  for (const [resultIndex, result] of snapshots.entries()) {
     if (
       result.state === "success" &&
-      result.output instanceof Blob &&
+      result.output !== null &&
       result.outputFormat !== null
     ) {
       successful.push({
-        result: result as ReportableProcessResult & {
-          output: Blob;
-          outputFormat: ImageFormat;
-        },
+        result,
+        output: result.output,
+        outputFormat: result.outputFormat,
         resultIndex,
       });
     }
   }
-  const plannedNames = successful.map(({ result }) =>
-    plannedEntryName(result, result.outputFormat),
+  const plannedNames = successful.map(({ result, outputFormat }) =>
+    plannedEntryName(result, outputFormat),
   );
   // Reserve the report's fixed root name before resolving image collisions.
   const resolvedNames = resolveNameCollisions([
     REPORT_NAME,
     ...plannedNames,
   ]).slice(1);
+  assertUniqueZipNames([
+    ...resolvedNames.map((name) => `${ZIP_ROOT}${name}`),
+    `${ZIP_ROOT}${REPORT_NAME}`,
+  ]);
   const packagedNameByResultIndex = new Map<number, string>();
   for (const [index, item] of successful.entries()) {
     const name = resolvedNames[index];
@@ -116,7 +180,7 @@ export async function createOutputZip(
       packagedNameByResultIndex.set(item.resultIndex, name);
     }
   }
-  const reportResults = results.map((result, resultIndex) => {
+  const reportResults = snapshots.map((result, resultIndex) => {
     const packagedName = packagedNameByResultIndex.get(resultIndex);
     return packagedName === undefined
       ? result
@@ -135,21 +199,21 @@ export async function createOutputZip(
         throw new Error("Missing resolved ZIP entry name");
       }
       yield {
-        input: item.result.output,
+        input: item.output,
         name: `${ZIP_ROOT}${name}`,
-        lastModified: now,
+        lastModified: snapshotDate,
       };
     }
     yield {
       input: report,
       name: `${ZIP_ROOT}${REPORT_NAME}`,
-      lastModified: now,
+      lastModified: snapshotDate,
     };
   }
 
   const response = downloadZip(inputs(), { buffersAreUTF8: true });
   return {
-    filename: archiveFilename(now),
+    filename,
     blob: await response.blob(),
   };
 }
