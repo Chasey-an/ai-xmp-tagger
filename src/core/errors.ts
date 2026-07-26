@@ -8,6 +8,7 @@ export type ProcessingErrorCode =
   | "DECODE_FAILED"
   | "ENCODE_FAILED"
   | "VERIFY_FAILED"
+  | "INVALID_MODE"
   | "CANCELLED";
 
 export class ProcessingError extends Error {

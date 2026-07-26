@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { getSrgb2014Profile } from "../../src/assets/srgb2014";
 import { TARGET_SUBJECT } from "../../src/core/constants";
 import {
   processFile,
@@ -25,6 +26,7 @@ import {
   knownValidJpeg1x1,
   knownValidPng1x1,
   knownValidWebp1x1,
+  jpegSegment,
   minimalPng,
   minimalWebp,
   pngChunk,
@@ -104,7 +106,7 @@ const conversionDependencies: ProcessFileDependencies = {
     height: 1,
     data: new Uint8ClampedArray([255, 255, 255, 255]),
   })),
-  encodeHighQualityJpeg: vi.fn(async () => knownValidJpeg1x1()),
+  encodeHighQualityJpeg: vi.fn(async () => trustedEncodedJpeg()),
 };
 
 function readOutputPacket(format: ImageFormat, output: Blob): Promise<string | null> {
@@ -372,6 +374,64 @@ describe("processFile XMP and safety invariants", () => {
     ).not.toContain("native-exif-must-be-dropped");
   });
 
+  it("sanitizes all unapproved encoder JPEG metadata before generated XMP is written", async () => {
+    const result = await processFile(
+      request("png", "jpeg-and-xmp"),
+      {
+        ...conversionDependencies,
+        encodeHighQualityJpeg: async () => maliciousEncodedJpeg(),
+      },
+    );
+
+    expect(result.state).toBe("success");
+    const output = new Uint8Array(await result.output!.arrayBuffer());
+    const text = new TextDecoder("latin1").decode(output);
+    expect(text).toContain("JFIF");
+    expect(text).not.toContain("encoder-secret-exif");
+    expect(text).not.toContain("encoder-secret-iptc");
+    expect(text).not.toContain("encoder-secret-comment");
+    expect(text).not.toContain("encoder-secret-private-app");
+    expect(text).not.toContain("encoder-old-subject");
+    expect(readIccProfile(output)).toEqual(getSrgb2014Profile());
+    expect(jpegHeaderMarkers(output)).toEqual(
+      expect.arrayContaining([0xdb, 0xc4, 0xc0, 0xda]),
+    );
+    expect(inspectPacket(readJpegXmp(output))).toEqual({
+      subjectExists: true,
+      subjects: [TARGET_SUBJECT],
+      targetTagCount: 1,
+    });
+  });
+
+  it("reads a BMP File only once during default conversion", async () => {
+    const bytes = validBmp1x1();
+    const arrayBuffer = vi.fn(async () => Uint8Array.from(bytes).buffer);
+    const file = {
+      name: "single-read.bmp",
+      type: "image/bmp",
+      size: bytes.length,
+      arrayBuffer,
+      slice: (start = 0, end = bytes.length) =>
+        new Blob([bytes.slice(start, end)]),
+    } as unknown as File;
+
+    const result = await processFile(
+      {
+        id: "single-read",
+        file,
+        format: "bmp",
+        relativePath: "single-read.bmp",
+        mode: "jpeg-and-xmp",
+      },
+      {
+        encodeHighQualityJpeg: async () => trustedEncodedJpeg(),
+      },
+    );
+
+    expect(result.state).toBe("success");
+    expect(arrayBuffer).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses animated WebP before invoking the decoder", async () => {
     const decodeRaster = vi.fn(async () => ({
       width: 1,
@@ -477,6 +537,57 @@ describe("processFile XMP and safety invariants", () => {
     expect(result.message).toMatch(/验证|写入/);
   });
 
+  it("uses injected bytes only for verification and never as returned output", async () => {
+    const replacementSubject = "verification-only-replacement";
+    const source = knownValidJpeg1x1();
+    const result = await processFile(
+      request("jpeg", "original-and-xmp", source),
+      {
+        beforeVerifyOutput(bytes) {
+          bytes[bytes.length - 3] =
+            bytes[bytes.length - 3]! ^ 0xff;
+          return writeJpegXmp(
+            bytes,
+            packet({
+              subjects: [replacementSubject, TARGET_SUBJECT],
+            }),
+          );
+        },
+      },
+    );
+
+    expect(result.state).toBe("success");
+    const returnedPacket = readJpegXmp(
+      new Uint8Array(await result.output!.arrayBuffer()),
+    );
+    expect(inspectPacket(returnedPacket)).toEqual({
+      subjectExists: true,
+      subjects: [TARGET_SUBJECT],
+      targetTagCount: 1,
+    });
+    expect(returnedPacket).not.toContain(replacementSubject);
+    const returnedBytes = new Uint8Array(
+      await result.output!.arrayBuffer(),
+    );
+    expect(returnedBytes[returnedBytes.length - 3]).toBe(
+      source[source.length - 3],
+    );
+  });
+
+  it("reports an accurate actionable failure for an unknown runtime mode", async () => {
+    const invalid = {
+      ...request("jpeg", "verify-only"),
+      mode: "mystery-mode",
+    } as unknown as ProcessRequest;
+
+    const result = await processFile(invalid, conversionDependencies);
+
+    expect(result.state).toBe("failed");
+    expect(result.message).toMatch(/处理模式.*无效|不支持.*处理模式/);
+    expect(result.message).toMatch(/重新选择|选择.*模式/);
+    expect(result.message).not.toMatch(/图片格式/);
+  });
+
   it("maps cancellation distinctly and never leaks thrown details", async () => {
     const result = await processFile(request("png", "jpeg-and-xmp"), {
       ...conversionDependencies,
@@ -537,4 +648,150 @@ function animatedWebp(): Uint8Array {
     webpChunk("ANIM", new Uint8Array(6)),
     webpChunk("ANMF", frame),
   ]);
+}
+
+function trustedEncodedJpeg(): Uint8Array {
+  const profile = getSrgb2014Profile();
+  const app0 = jpegSegment(
+    0xe0,
+    concatBytes(
+      utf8Bytes("JFIF\0"),
+      [1, 1, 0, 0, 1, 0, 1, 0, 0],
+    ),
+  );
+  const icc = jpegSegment(
+    0xe2,
+    concatBytes(utf8Bytes("ICC_PROFILE\0"), [1, 1], profile),
+  );
+  const dqt = jpegSegment(0xdb, [0, ...new Uint8Array(64).fill(1)]);
+  const sof0 = jpegSegment(0xc0, [
+    8,
+    0, 1,
+    0, 1,
+    3,
+    1, 0x11, 0,
+    2, 0x11, 1,
+    3, 0x11, 1,
+  ]);
+  const dht = jpegSegment(0xc4, [
+    0,
+    1, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0,
+    0,
+  ]);
+  const sos = jpegSegment(0xda, [
+    3,
+    1, 0,
+    2, 0x11,
+    3, 0x11,
+    0, 0x3f, 0,
+  ]);
+  return concatBytes(
+    [0xff, 0xd8],
+    app0,
+    icc,
+    dqt,
+    sof0,
+    dht,
+    sos,
+    [0, 0xff, 0xd9],
+  );
+}
+
+function maliciousEncodedJpeg(): Uint8Array {
+  const jpeg = trustedEncodedJpeg();
+  const app0Length = jpeg[4]! * 0x100 + jpeg[5]!;
+  const app0End = 4 + app0Length;
+  const oldXmp = packet({ subjects: ["encoder-old-subject"] });
+  return concatBytes(
+    jpeg.subarray(0, app0End),
+    jpegSegment(
+      0xe1,
+      concatBytes(
+        utf8Bytes("Exif\0\0"),
+        utf8Bytes("encoder-secret-exif"),
+      ),
+    ),
+    jpegSegment(0xed, utf8Bytes("encoder-secret-iptc")),
+    jpegSegment(0xfe, utf8Bytes("encoder-secret-comment")),
+    jpegSegment(0xec, utf8Bytes("encoder-secret-private-app")),
+    jpegSegment(
+      0xe1,
+      concatBytes(
+        utf8Bytes("http://ns.adobe.com/xap/1.0/\0"),
+        utf8Bytes(oldXmp),
+      ),
+    ),
+    jpeg.subarray(app0End),
+  );
+}
+
+function readIccProfile(jpeg: Uint8Array): Uint8Array {
+  const chunks = new Map<number, Uint8Array>();
+  let total = 0;
+  let offset = 2;
+  while (offset < jpeg.length) {
+    if (jpeg[offset] !== 0xff) {
+      throw new Error("Invalid JPEG marker");
+    }
+    const marker = jpeg[offset + 1]!;
+    const length = jpeg[offset + 2]! * 0x100 + jpeg[offset + 3]!;
+    const end = offset + 2 + length;
+    if (marker === 0xda) break;
+    if (marker === 0xe2) {
+      const payload = jpeg.subarray(offset + 4, end);
+      const signature = utf8Bytes("ICC_PROFILE\0");
+      if (
+        signature.every((value, index) => payload[index] === value)
+      ) {
+        const sequence = payload[signature.length]!;
+        total = payload[signature.length + 1]!;
+        chunks.set(sequence, payload.slice(signature.length + 2));
+      }
+    }
+    offset = end;
+  }
+  return concatBytes(
+    ...Array.from({ length: total }, (_, index) => {
+      const chunk = chunks.get(index + 1);
+      if (chunk === undefined) {
+        throw new Error("Missing ICC chunk");
+      }
+      return chunk;
+    }),
+  );
+}
+
+function jpegHeaderMarkers(jpeg: Uint8Array): number[] {
+  const markers: number[] = [];
+  let offset = 2;
+  while (offset < jpeg.length) {
+    if (jpeg[offset] !== 0xff) {
+      throw new Error("Invalid JPEG marker");
+    }
+    const marker = jpeg[offset + 1]!;
+    markers.push(marker);
+    const length = jpeg[offset + 2]! * 0x100 + jpeg[offset + 3]!;
+    offset += 2 + length;
+    if (marker === 0xda) {
+      return markers;
+    }
+  }
+  throw new Error("Missing JPEG SOS");
+}
+
+function validBmp1x1(): Uint8Array {
+  const bytes = new Uint8Array(58);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x42, 0x4d]);
+  view.setUint32(2, bytes.length, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, 1, true);
+  view.setInt32(22, 1, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 24, true);
+  view.setUint32(34, 4, true);
+  bytes.set([30, 20, 10, 0], 54);
+  return bytes;
 }

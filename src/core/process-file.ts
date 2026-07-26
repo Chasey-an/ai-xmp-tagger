@@ -1,6 +1,7 @@
 import { decodeRaster as defaultDecodeRaster } from "./conversion/decode";
 import {
   encodeHighQualityJpeg as defaultEncodeHighQualityJpeg,
+  sanitizeHighQualityJpeg,
   type RgbaImage,
 } from "./conversion/jpeg";
 import { ProcessingError } from "./errors";
@@ -45,6 +46,7 @@ export interface ProcessFileDependencies {
   decodeRaster?: (
     file: File,
     format: "png" | "webp" | "bmp",
+    preloadedBytes?: Uint8Array,
   ) => Promise<RgbaImage>;
   encodeHighQualityJpeg?: (image: RgbaImage) => Promise<Uint8Array>;
   /**
@@ -236,6 +238,7 @@ async function convertedWrite(
     decoded = await decodeRaster(
       request.file,
       request.format,
+      bytes,
     );
   } catch (error) {
     if (isCancellation(error)) {
@@ -255,7 +258,14 @@ async function convertedWrite(
   }
 
   return {
-    bytes: writeJpegXmp(encoded, normalized),
+    bytes: writeJpegXmp(
+      sanitizeHighQualityJpeg(
+        encoded,
+        decoded.width,
+        decoded.height,
+      ),
+      normalized,
+    ),
     format: "jpeg",
     reencoded: true,
   };
@@ -264,25 +274,32 @@ async function convertedWrite(
 async function verifyWrittenOutput(
   written: WrittenOutput,
   dependencies: ProcessFileDependencies,
-): Promise<{ bytes: Uint8Array; check: SubjectCheck }> {
+): Promise<SubjectCheck> {
   const bytes =
     dependencies.beforeVerifyOutput === undefined
       ? written.bytes
       : await dependencies.beforeVerifyOutput(
-          written.bytes,
+          written.bytes.slice(),
           written.format,
         );
   const check = inspectPacket(readXmp(bytes, written.format));
   if (check.targetTagCount !== 1) {
     throw new WrittenOutputVerificationError(check);
   }
-  return { bytes, check };
+  return check;
 }
 
 function outputBlob(bytes: Uint8Array, format: XmpFormat): Blob {
   const type =
     format === "jpeg" ? "image/jpeg" : `image/${format}`;
-  return new Blob([bytes.slice().buffer], { type });
+  const buffer = bytes.buffer;
+  const exactBuffer =
+    buffer instanceof ArrayBuffer &&
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === buffer.byteLength
+      ? buffer
+      : bytes.slice().buffer;
+  return new Blob([exactBuffer], { type });
 }
 
 function successMessage(reencoded: boolean): string {
@@ -346,6 +363,8 @@ function safeMessage(error: unknown): string {
       return "高清 JPEG 编码失败，请重试或更换源图片。";
     case "VERIFY_FAILED":
       return "标签写入后的验证未通过，未生成输出文件，请重试。";
+    case "INVALID_MODE":
+      return "处理模式无效，请重新选择一个可用模式后再试。";
     case "CANCELLED":
       return "处理已取消。";
   }
@@ -371,7 +390,7 @@ export async function processFile(
     }
     if (!SUPPORTED_MODES.has(request.mode)) {
       throw new ProcessingError(
-        "UNSUPPORTED_FORMAT",
+        "INVALID_MODE",
         "Runtime processing mode is unsupported",
       );
     }
@@ -414,13 +433,12 @@ export async function processFile(
       request.mode === "original-and-xmp"
         ? originalWrite(bytes, request.format as XmpFormat)
         : await convertedWrite(request, bytes, dependencies);
-    const verified = await verifyWrittenOutput(written, dependencies);
-    latestCheck = verified.check;
+    latestCheck = await verifyWrittenOutput(written, dependencies);
 
     return {
       id: request.id,
       state: "success",
-      output: outputBlob(verified.bytes, written.format),
+      output: outputBlob(written.bytes, written.format),
       outputFormat: written.format,
       // Task 10 is the only security-authoritative output-name owner.
       outputName: null,

@@ -74,8 +74,13 @@ function readU32Be(bytes: Uint8Array, offset: number): number {
   ) >>> 0;
 }
 
-async function inspectPng(file: File): Promise<ExpectedDimensions> {
-  const bytes = new Uint8Array(await file.slice(0, 24).arrayBuffer());
+async function inspectPng(
+  file: File,
+  preloadedBytes?: Uint8Array,
+): Promise<ExpectedDimensions> {
+  const bytes =
+    preloadedBytes?.subarray(0, 24) ??
+    new Uint8Array(await file.slice(0, 24).arrayBuffer());
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (
     bytes.length !== 24 ||
@@ -91,7 +96,7 @@ async function inspectPng(file: File): Promise<ExpectedDimensions> {
   const dimensions: ExpectedDimensions = {
     width: readU32Be(bytes, 16),
     height: readU32Be(bytes, 20),
-    orientation: await readPngOrientation(file),
+    orientation: await readPngOrientation(file, preloadedBytes),
   };
   validateDimensions(dimensions.width, dimensions.height);
   return dimensions;
@@ -100,22 +105,30 @@ async function inspectPng(file: File): Promise<ExpectedDimensions> {
 const MAX_PNG_CHUNKS_FOR_ORIENTATION = 256;
 const MAX_PNG_EXIF_BYTES = 64 * 1024;
 
-async function readPngOrientation(file: File): Promise<ExifOrientation> {
+async function readPngOrientation(
+  file: File,
+  preloadedBytes?: Uint8Array,
+): Promise<ExifOrientation> {
+  const size = preloadedBytes?.byteLength ?? file.size;
+  const readRange = async (
+    start: number,
+    end: number,
+  ): Promise<Uint8Array> =>
+    preloadedBytes?.subarray(start, end) ??
+    new Uint8Array(await file.slice(start, end).arrayBuffer());
   let offset = 8;
   for (
     let chunks = 0;
-    offset < file.size && chunks < MAX_PNG_CHUNKS_FOR_ORIENTATION;
+    offset < size && chunks < MAX_PNG_CHUNKS_FOR_ORIENTATION;
     chunks += 1
   ) {
-    const header = new Uint8Array(
-      await file.slice(offset, offset + 8).arrayBuffer(),
-    );
+    const header = await readRange(offset, offset + 8);
     if (header.length !== 8) {
       throw decodeFailed("PNG 区块头已截断，无法安全读取方向信息。");
     }
     const length = readU32Be(header, 0);
     const chunkEnd = offset + 12 + length;
-    if (!Number.isSafeInteger(chunkEnd) || chunkEnd > file.size) {
+    if (!Number.isSafeInteger(chunkEnd) || chunkEnd > size) {
       throw decodeFailed("PNG 区块长度无效，无法安全读取方向信息。");
     }
     const isExif =
@@ -127,8 +140,9 @@ async function readPngOrientation(file: File): Promise<ExifOrientation> {
       if (length > MAX_PNG_EXIF_BYTES) {
         throw decodeFailed("PNG eXIf 方向元数据超过安全读取上限。");
       }
-      const payload = new Uint8Array(
-        await file.slice(offset + 8, offset + 8 + length).arrayBuffer(),
+      const payload = await readRange(
+        offset + 8,
+        offset + 8 + length,
       );
       try {
         return readExifOrientation(payload);
@@ -138,7 +152,7 @@ async function readPngOrientation(file: File): Promise<ExifOrientation> {
     }
     offset = chunkEnd;
   }
-  if (offset < file.size) {
+  if (offset < size) {
     throw decodeFailed("PNG 区块数量过多，无法安全确定图片方向。");
   }
   return 1;
@@ -258,17 +272,21 @@ async function decodeWithBrowser(
 export async function decodeRaster(
   file: File,
   format: "png" | "webp" | "bmp",
+  preloadedBytes?: Uint8Array,
 ): Promise<RgbaImage> {
   try {
     if (format === "bmp") {
-      const bytes = new Uint8Array(await file.arrayBuffer());
+      const bytes =
+        preloadedBytes ??
+        new Uint8Array(await file.arrayBuffer());
       return whiteComposeInPlace(decodeBmp(bytes));
     }
 
     let expected: ExpectedDimensions;
     if (format === "webp") {
       const inspection = inspectWebp(
-        new Uint8Array(await file.arrayBuffer()),
+        preloadedBytes ??
+          new Uint8Array(await file.arrayBuffer()),
       );
       validateDimensions(inspection.width, inspection.height);
       if (inspection.animated) {
@@ -278,7 +296,7 @@ export async function decodeRaster(
       }
       expected = inspection;
     } else {
-      expected = await inspectPng(file);
+      expected = await inspectPng(file, preloadedBytes);
     }
 
     return await decodeWithBrowser(file, expected);

@@ -9,9 +9,12 @@ export type { RgbaImage } from "./bmp";
 
 const APP0 = 0xe0;
 const APP2 = 0xe2;
+const APP15 = 0xef;
+const COM = 0xfe;
 const SOF0 = 0xc0;
 const SOF2 = 0xc2;
 const SOS = 0xda;
+const JFIF_IDENTIFIER = new Uint8Array([0x4a, 0x46, 0x49, 0x46, 0]);
 const ICC_IDENTIFIER = new Uint8Array([
   0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0,
 ]);
@@ -161,6 +164,77 @@ function isIccSegment(jpeg: Uint8Array, segment: JpegSegment): boolean {
     ),
     ICC_IDENTIFIER,
   );
+}
+
+function isApprovedJfif(
+  jpeg: Uint8Array,
+  segment: JpegSegment,
+): boolean {
+  if (
+    segment.marker !== APP0 ||
+    segment.payloadEnd - segment.payloadStart < 14 ||
+    !sameBytes(
+      jpeg.subarray(
+        segment.payloadStart,
+        segment.payloadStart + JFIF_IDENTIFIER.length,
+      ),
+      JFIF_IDENTIFIER,
+    )
+  ) {
+    return false;
+  }
+  const thumbnailWidth = jpeg[segment.payloadStart + 12]!;
+  const thumbnailHeight = jpeg[segment.payloadStart + 13]!;
+  const expectedLength = 14 + thumbnailWidth * thumbnailHeight * 3;
+  return segment.payloadEnd - segment.payloadStart === expectedLength;
+}
+
+function isStartOfFrame(marker: number): boolean {
+  return (
+    marker >= 0xc0 &&
+    marker <= 0xcf &&
+    marker !== 0xc4 &&
+    marker !== 0xc8 &&
+    marker !== 0xcc
+  );
+}
+
+function validateSingleScanTail(
+  jpeg: Uint8Array,
+  scanDataStart: number,
+): void {
+  let offset = scanDataStart;
+  while (offset < jpeg.length) {
+    if (jpeg[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+
+    let markerOffset = offset + 1;
+    while (
+      markerOffset < jpeg.length &&
+      jpeg[markerOffset] === 0xff
+    ) {
+      markerOffset += 1;
+    }
+    if (markerOffset >= jpeg.length) {
+      fail("JPEG encoder scan ends with a truncated marker");
+    }
+
+    const marker = jpeg[markerOffset]!;
+    if (
+      marker === 0x00 ||
+      (marker >= 0xd0 && marker <= 0xd7)
+    ) {
+      offset = markerOffset + 1;
+      continue;
+    }
+    if (marker === 0xd9 && markerOffset === jpeg.length - 1) {
+      return;
+    }
+    fail("JPEG encoder output contains metadata or another frame after SOS");
+  }
+  fail("JPEG encoder output has no EOI marker after its scan");
 }
 
 function createIccSegments(profile: Uint8Array): Uint8Array[] {
@@ -313,6 +387,75 @@ function validateInput(image: RgbaImage): void {
   }
   if (image.data.length !== pixels * 4) {
     fail("JPEG source RGBA byte length does not match its dimensions");
+  }
+}
+
+/**
+ * Treats encoder bytes as untrusted and returns only the JPEG coding stream,
+ * an approved JFIF marker, and the exact bundled sRGB ICC profile.
+ */
+export function sanitizeHighQualityJpeg(
+  jpeg: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  try {
+    const segments = scanHeader(jpeg);
+    const scan = segments[segments.length - 1];
+    if (scan === undefined || scan.marker !== SOS) {
+      fail("JPEG encoder output has no final SOS header");
+    }
+    validateSingleScanTail(jpeg, scan.end);
+    const output: Uint8Array[] = [jpeg.subarray(0, 2)];
+    let jfifSeen = false;
+
+    for (const segment of segments) {
+      if (isStartOfFrame(segment.marker) && segment.marker !== SOF0) {
+        fail("JPEG encoder output contains a non-baseline frame");
+      }
+
+      if (segment.marker === APP0) {
+        if (isApprovedJfif(jpeg, segment)) {
+          if (jfifSeen) {
+            fail("JPEG encoder output contains duplicate JFIF metadata");
+          }
+          jfifSeen = true;
+          output.push(jpeg.subarray(segment.start, segment.end));
+        }
+      } else if (isIccSegment(jpeg, segment)) {
+        output.push(jpeg.subarray(segment.start, segment.end));
+      } else if (
+        (segment.marker >= APP0 && segment.marker <= APP15) ||
+        segment.marker === COM
+      ) {
+        // All unapproved application metadata is intentionally discarded.
+      } else {
+        output.push(jpeg.subarray(segment.start, segment.end));
+      }
+
+      if (segment.marker === SOS) {
+        output.push(jpeg.subarray(segment.end));
+        break;
+      }
+    }
+
+    const sanitized = concatBytes(output);
+    validateOutput(
+      sanitized,
+      width,
+      height,
+      getSrgb2014Profile(),
+    );
+    return sanitized;
+  } catch (error) {
+    if (error instanceof ProcessingError && error.code === "ENCODE_FAILED") {
+      throw error;
+    }
+    throw new ProcessingError(
+      "ENCODE_FAILED",
+      "JPEG 编码结果包含无效或不安全的元数据。",
+      { cause: error },
+    );
   }
 }
 
