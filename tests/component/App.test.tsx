@@ -186,7 +186,7 @@ describe("browser-local XMP workbench", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "批量添加 AI 生成人物 XMP 标签",
+        name: "在浏览器批量添加 AI 生成人物 XMP 标签",
       }),
     ).toBeInTheDocument();
     expect(
@@ -198,7 +198,10 @@ describe("browser-local XMP workbench", () => {
       }),
     ).toBeChecked();
     expect(screen.getByRole("button", { name: "开始处理" })).toBeDisabled();
-    expect(document.body.textContent).not.toContain("TIFF");
+    expect(document.body.textContent).toContain(
+      "HEIC、TIFF、超出网页上限或大批量离线流程",
+    );
+    expect(document.body.textContent).toContain("桌面版作为备用");
   });
 
   it("adds files, deduplicates them, then supports remove and clear", async () => {

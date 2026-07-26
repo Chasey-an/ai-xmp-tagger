@@ -120,7 +120,7 @@ async function renderSocialCard(outputPath) {
         fontFamily: getComputedStyle(document.body).fontFamily,
         pingFangReady: document.fonts.check(
           '16px "PingFang SC"',
-          "本地批量写入与检查 XMP 标签",
+          "浏览器直接批量写入与检查 XMP",
         ),
         images: [...document.images].map((image) => ({
           complete: image.complete,

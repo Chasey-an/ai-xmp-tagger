@@ -467,7 +467,7 @@ export function App({ dependencies }: AppProps) {
           </div>
           <div class="workbench-body">
             <section class="intro">
-              <h1>批量添加 AI 生成人物 XMP 标签</h1>
+              <h1>在浏览器批量添加 AI 生成人物 XMP 标签</h1>
               <p>图片只在当前浏览器处理，不会上传服务器</p>
             </section>
             <ModeSelector
