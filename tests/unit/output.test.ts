@@ -126,7 +126,7 @@ describe("safe output names", () => {
       planOutputName(
         String.raw`C:\Users\A\CON.jpg`,
         "original-and-xmp",
-        "png",
+        "jpeg",
       ),
     ).toBe("CON-file_xmp.jpg");
 
@@ -216,7 +216,7 @@ describe("safe output names", () => {
     ).toBe("folder/source_xmp.jpg");
     expect(
       planOutputName("folder/source.jpg", "original-and-xmp", "png"),
-    ).toBe("folder/source_xmp.jpg");
+    ).toBe("folder/source_xmp.png");
     expect(
       planOutputName("folder/source", "original-and-xmp", "png"),
     ).toBe("folder/source_xmp.png");
@@ -344,11 +344,18 @@ describe("processing CSV", () => {
       result({
         message: String.raw`设备路径 \\?\C:\private\secret.jpg`,
       }),
+      result({
+        message: "根目录文件 /secret.jpg 无法读取",
+      }),
+      result({
+        message: String.raw`当前盘文件 \Users\Alice\secret.jpg 无法读取`,
+      }),
     ]);
 
     for (const leaked of [
       "/Users/",
       "/home/",
+      "/secret.jpg",
       "Alice",
       "C:",
       "\\",

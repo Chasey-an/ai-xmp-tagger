@@ -916,11 +916,11 @@ git commit -m "feat: run cancellable browser XMP batches"
 
 ```ts
 it.each([
-  ["../../secret.jpg", "secret_xmp.jpg"],
-  ["C:\\Users\\A\\CON.jpg", "CON-file_xmp.jpg"],
-  ["a\u0000b.png", "ab_xmp.png"],
-])("sanitizes %s", (input, expected) => {
-  expect(planOutputName(input, "original-and-xmp", "png")).toBe(expected);
+  ["../../secret.jpg", "jpeg", "secret_xmp.jpg"],
+  ["C:\\Users\\A\\CON.jpg", "jpeg", "CON-file_xmp.jpg"],
+  ["a\u0000b.png", "png", "ab_xmp.png"],
+])("sanitizes %s", (input, format, expected) => {
+  expect(planOutputName(input, "original-and-xmp", format)).toBe(expected);
 });
 
 it("keeps only relative paths in the BOM CSV", () => {
@@ -930,6 +930,9 @@ it("keeps only relative paths in the BOM CSV", () => {
   expect(csv).not.toMatch(/\/Users\/|[A-Z]:\\/);
 });
 ```
+
+Erratum: `format` is the detected, actual output format, and the planned
+extension must follow it rather than an untrusted source filename extension.
 
 - [ ] **Step 2: Verify failure**
 

@@ -99,11 +99,21 @@ function containsAbsoluteLocalPath(value: string): boolean {
     /(?:^|[\s("'`，。；;：])\/(?!\/)[^/\s]+\/[^/\s]+/u.test(
       value,
     );
+  const posixRootFile =
+    /(?:^|[\s("'`，。；;：])\/(?!\/)[^/\s]+(?=$|[\s,，。；;:：!?！？)"'])/u.test(
+      value,
+    );
+  const windowsCurrentDrive =
+    /(?:^|[\s("'`，。；;：])\\(?!\\)[^\\\r\n]+\\[^\\\r\n]+/u.test(
+      value,
+    );
   return (
     windowsDrive ||
     windowsNetworkOrDevice ||
     commonPosixRoot ||
-    genericPosixAbsolute
+    genericPosixAbsolute ||
+    posixRootFile ||
+    windowsCurrentDrive
   );
 }
 

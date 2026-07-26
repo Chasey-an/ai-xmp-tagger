@@ -168,22 +168,9 @@ export function sanitizeRelativePath(path: string): string {
 function extensionFor(
   mode: ProcessingMode,
   format: ImageFormat,
-  sourceFilename: string,
 ): string {
   if (mode === "jpeg-and-xmp") {
     return ".jpg";
-  }
-  const sourceExtension = sourceFilename
-    .slice(sourceFilename.lastIndexOf("."))
-    .toLocaleLowerCase("en-US");
-  switch (sourceExtension) {
-    case ".jpg":
-    case ".jpeg":
-      return ".jpg";
-    case ".png":
-    case ".webp":
-    case ".bmp":
-      return sourceExtension;
   }
   switch (format) {
     case "jpeg":
@@ -206,7 +193,7 @@ export function planOutputName(
   const segments = safePath.split("/");
   const filename = segments.pop() ?? "unnamed";
   const { stem } = splitExtension(filename);
-  const extension = extensionFor(mode, format, filename);
+  const extension = extensionFor(mode, format);
   const outputFilename = truncateSegment(stem, extension, "_xmp");
   return boundRelativePath([...segments, outputFilename]);
 }
