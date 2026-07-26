@@ -210,6 +210,7 @@ test("oriented PNG and WebP normalize 90-degree rotation and physical pixels", a
       await (await toBlob("image/webp")).arrayBuffer(),
     );
     const originalChunks = [];
+    let originalAlphaFlag = false;
     let offset = 12;
     while (offset < webpBytes.length) {
       const length =
@@ -221,21 +222,62 @@ test("oriented PNG and WebP normalize 90-degree rotation and physical pixels", a
       const fourcc = new TextDecoder().decode(
         webpBytes.subarray(offset, offset + 4),
       );
+      if (fourcc === "VP8X") {
+        originalAlphaFlag = (webpBytes[offset + 8] & 0x10) !== 0;
+      }
       if (fourcc !== "VP8X" && fourcc !== "EXIF") {
-        originalChunks.push(webpBytes.slice(offset, end));
+        const raw = webpBytes.slice(offset, end);
+        if (fourcc === "ALPH") {
+          originalAlphaFlag = true;
+        } else if (fourcc === "VP8L" && raw.length >= 13) {
+          const packed =
+            raw[9] +
+            raw[10] * 0x100 +
+            raw[11] * 0x10000 +
+            raw[12] * 0x1000000;
+          originalAlphaFlag ||= (packed & 0x10000000) !== 0;
+        }
+        originalChunks.push({ fourcc, raw });
       }
       offset = end;
     }
+    let vp8xFlags = 0x08;
+    if (originalAlphaFlag) vp8xFlags |= 0x10;
+    if (originalChunks.some(({ fourcc }) => fourcc === "ICCP")) {
+      vp8xFlags |= 0x20;
+    }
+    if (originalChunks.some(({ fourcc }) => fourcc === "XMP ")) {
+      vp8xFlags |= 0x04;
+    }
     const vp8x = new Uint8Array([
-      0x08, 0, 0, 0,
+      vp8xFlags, 0, 0, 0,
       1, 0, 0,
       0, 0, 0,
     ]);
+    const extendedChunks = [];
+    let exifInserted = false;
+    for (const chunkValue of originalChunks) {
+      if (
+        !exifInserted &&
+        ["ALPH", "VP8 ", "VP8L"].includes(chunkValue.fourcc)
+      ) {
+        extendedChunks.push(
+          webpChunk(
+            "EXIF",
+            concat(ascii("Exif"), new Uint8Array([0, 0]), tiff),
+          ),
+        );
+        exifInserted = true;
+      }
+      extendedChunks.push(chunkValue.raw);
+    }
+    if (!exifInserted) {
+      throw new Error("Canvas WebP contained no static image chunk");
+    }
     const webpBody = concat(
       ascii("WEBP"),
       webpChunk("VP8X", vp8x),
-      webpChunk("EXIF", concat(ascii("Exif"), new Uint8Array([0, 0]), tiff)),
-      ...originalChunks,
+      ...extendedChunks,
     );
     const orientedWebp = concat(
       ascii("RIFF"),
