@@ -63,13 +63,13 @@ test("production CSP permits only same-origin WASM conversion requests", async (
       networkUrls.push(url);
     }
   });
-  page.on("response", async (response) => {
-    responseHeaders.set(new URL(response.url()).pathname, await response.allHeaders());
+  page.on("response", (response) => {
+    responseHeaders.set(new URL(response.url()).pathname, response.headers());
   });
 
   const documentResponse = await page.goto("/");
   expect(documentResponse).not.toBeNull();
-  const documentHeaders = await documentResponse!.allHeaders();
+  const documentHeaders = documentResponse!.headers();
   expect(documentHeaders["content-security-policy"]).toContain(
     "connect-src 'self'",
   );
@@ -100,6 +100,9 @@ test("production CSP permits only same-origin WASM conversion requests", async (
     /\/assets\/index-[^/]+\.js$/u.test(pathname),
   );
   expect(applicationUrl, "the production application bundle must load").toBeDefined();
+  expect(responseHeaders.has(wasmUrl!.pathname)).toBe(true);
+  expect(responseHeaders.has(workerUrl!.pathname)).toBe(true);
+  expect(responseHeaders.has(applicationUrl!.pathname)).toBe(true);
   expect(responseHeaders.get(wasmUrl!.pathname)?.["content-type"]).toBe(
     "application/wasm",
   );

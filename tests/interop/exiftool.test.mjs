@@ -10,24 +10,55 @@ import { chromium } from "@playwright/test";
 
 const execFileAsync = promisify(execFile);
 const TARGET = "contains-synthetic-performer";
+const PROCESS_TIMEOUT_MS = 15_000;
+const TEST_TIMEOUT_MS = 90_000;
 
-test("ExifTool independently reads exactly one XMP-dc Subject in browser outputs", async (t) => {
-  const version = spawnSync("exiftool", ["-ver"], { encoding: "utf8" });
-  if (version.status !== 0) {
-    if (process.env.CI) {
-      assert.fail("ExifTool is required in CI but `exiftool -ver` failed");
+test(
+  "ExifTool independently reads exactly one XMP-dc Subject in browser outputs",
+  { timeout: TEST_TIMEOUT_MS },
+  async (t) => {
+    const version = spawnSync("exiftool", ["-ver"], {
+      encoding: "utf8",
+      timeout: 5_000,
+      killSignal: "SIGKILL",
+      maxBuffer: 1024 * 1024,
+    });
+    if (version.error?.code === "ENOENT") {
+      if (process.env.CI) {
+        assert.fail("ExifTool is required in CI but was not found on PATH");
+      }
+      t.skip(
+        "ExifTool not installed; local interop verification skipped explicitly",
+      );
+      return;
     }
-    t.skip("ExifTool not installed; local interop verification skipped explicitly");
-    return;
-  }
+    assert.equal(
+      version.status,
+      0,
+      `\`exiftool -ver\` failed or timed out: ${
+        version.error?.message ?? version.stderr
+      }`,
+    );
 
-  const temporaryDirectory = await mkdtemp(
-    path.join(os.tmpdir(), "ai-xmp-exiftool-"),
-  );
-  const { startCspServer } = await import("../e2e/serve-dist-csp.mjs");
-  const server = await startCspServer({ port: 0 });
-  let browser;
-  try {
+    const temporaryDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "ai-xmp-exiftool-"),
+    );
+    let server;
+    let browser;
+    t.after(async () => {
+      try {
+        await browser?.close();
+      } finally {
+        try {
+          await server?.close();
+        } finally {
+          await rm(temporaryDirectory, { recursive: true, force: true });
+        }
+      }
+    });
+
+    const { startCspServer } = await import("../e2e/serve-dist-csp.mjs");
+    server = await startCspServer({ port: 0 });
     browser = await chromium.launch();
     const fixtureNames = [
       "neutral-1x1.jpg",
@@ -37,7 +68,9 @@ test("ExifTool independently reads exactly one XMP-dc Subject in browser outputs
     const outputs = [];
     for (const fixtureName of fixtureNames) {
       const page = await browser.newPage();
-      await page.goto(server.url);
+      page.setDefaultTimeout(PROCESS_TIMEOUT_MS);
+      page.setDefaultNavigationTimeout(PROCESS_TIMEOUT_MS);
+      await page.goto(server.url, { waitUntil: "load" });
       await page
         .getByRole("radio", { name: "保持原格式并写入标签" })
         .check();
@@ -47,7 +80,9 @@ test("ExifTool independently reads exactly one XMP-dc Subject in browser outputs
       await page.getByLabel("选择图片文件", { exact: true }).setInputFiles(sourcePath);
       await page.getByRole("button", { name: "开始处理" }).click();
       await page.getByRole("heading", { name: "处理结果" }).waitFor();
-      const downloadEvent = page.waitForEvent("download");
+      const downloadEvent = page.waitForEvent("download", {
+        timeout: PROCESS_TIMEOUT_MS,
+      });
       await page.getByRole("button", { name: "下载处理后的图片" }).click();
       const download = await downloadEvent;
       const outputPath = path.join(
@@ -60,12 +95,16 @@ test("ExifTool independently reads exactly one XMP-dc Subject in browser outputs
     }
 
     for (const { outputPath } of outputs) {
-      const { stdout } = await execFileAsync("exiftool", [
-        "-json",
-        "-G1",
-        "-XMP-dc:Subject",
-        outputPath,
-      ]);
+      const { stdout } = await execFileAsync(
+        "exiftool",
+        ["-json", "-G1", "-XMP-dc:Subject", outputPath],
+        {
+          encoding: "utf8",
+          timeout: PROCESS_TIMEOUT_MS,
+          killSignal: "SIGKILL",
+          maxBuffer: 1024 * 1024,
+        },
+      );
       const records = JSON.parse(stdout);
       assert.equal(records.length, 1);
       assert.equal(countExactValues(records[0]["XMP-dc:Subject"]), 1);
@@ -76,18 +115,8 @@ test("ExifTool independently reads exactly one XMP-dc Subject in browser outputs
       extractJpegScan(await readFile(jpeg.outputPath)),
       extractJpegScan(jpeg.source),
     );
-  } finally {
-    try {
-      await browser?.close();
-    } finally {
-      try {
-        await server.close();
-      } finally {
-        await rm(temporaryDirectory, { recursive: true, force: true });
-      }
-    }
-  }
-});
+  },
+);
 
 async function decodeFixture(name) {
   const value = await readFile(

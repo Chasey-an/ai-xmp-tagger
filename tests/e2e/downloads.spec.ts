@@ -62,6 +62,50 @@ test("two successes plus one corrupt failure download a safe partial-success ZIP
   expect(csv).toContain("DUP_xmp-2.jpg");
   expect(csv).toContain("'=2+2.jpg");
   expect(csv).not.toMatch(/\/Users\/|[A-Za-z]:\\|\\\\[^\\]+\\/u);
+
+  const localNameMismatch = Buffer.from(output.bytes);
+  const localHeader = localNameMismatch.indexOf(
+    Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  );
+  expect(localHeader).toBeGreaterThanOrEqual(0);
+  Buffer.from("../", "utf8").copy(localNameMismatch, localHeader + 30);
+  expect(() => parseStoredZip(localNameMismatch)).toThrow(/filename mismatch/iu);
+
+  const multiDisk = Buffer.from(output.bytes);
+  const eocd = multiDisk.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  expect(eocd).toBeGreaterThanOrEqual(0);
+  multiDisk.writeUInt16LE(1, eocd + 4);
+  expect(() => parseStoredZip(multiDisk)).toThrow(/multi-disk/iu);
+
+  const inconsistentCentralSize = Buffer.from(output.bytes);
+  const centralSize = inconsistentCentralSize.readUInt32LE(eocd + 12);
+  inconsistentCentralSize.writeUInt32LE(centralSize - 1, eocd + 12);
+  expect(() => parseStoredZip(inconsistentCentralSize)).toThrow(
+    /central directory extent/iu,
+  );
+
+  const unsupportedFlags = Buffer.from(output.bytes);
+  const centralOffset = unsupportedFlags.readUInt32LE(eocd + 16);
+  unsupportedFlags.writeUInt16LE(
+    unsupportedFlags.readUInt16LE(centralOffset + 8) | 0x0001,
+    centralOffset + 8,
+  );
+  expect(() => parseStoredZip(unsupportedFlags)).toThrow(/unsupported.*flags/iu);
+
+  const inconsistentLocalSize = Buffer.from(output.bytes);
+  inconsistentLocalSize.writeUInt32LE(1, localHeader + 18);
+  expect(() => parseStoredZip(inconsistentLocalSize)).toThrow(
+    /local\/central size or CRC mismatch/iu,
+  );
+
+  const truncatedLocalHeader = Buffer.from(output.bytes);
+  truncatedLocalHeader.writeUInt32LE(centralOffset - 10, centralOffset + 42);
+  expect(() => parseStoredZip(truncatedLocalHeader)).toThrow(
+    /local header/iu,
+  );
+
+  expect(() => parseStoredZip(output.bytes.subarray(0, output.bytes.length - 5)))
+    .toThrow(/EOCD/iu);
 });
 
 test("single success downloads a direct image and a separate CSV", async ({

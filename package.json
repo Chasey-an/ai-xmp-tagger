@@ -11,7 +11,7 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:conversion": "playwright test --config=playwright.conversion.config.js",
-    "test:interop": "node --test tests/interop/exiftool.test.mjs",
+    "test:interop": "npm run build && node --test tests/interop/exiftool.test.mjs",
     "test": "npm run test:unit && npm run build && npm run capture:social:check && npm run test:e2e && npm run test:conversion",
     "preview": "vite preview",
     "capture:social": "node scripts/capture-social-card.mjs",

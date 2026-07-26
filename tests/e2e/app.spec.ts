@@ -124,43 +124,68 @@ test("default JPEG write preserves the independently hashed entropy-coded scan",
 test("cancelling a WASM-blocked conversion deterministically cancels queued files", async ({
   page,
 }) => {
+  const wasmPattern = "**/*.wasm";
+  let wasmIntercepted = false;
+  let wasmHandlerFinished = false;
   let releaseWasm!: () => void;
   const wasmRelease = new Promise<void>((resolve) => {
     releaseWasm = resolve;
   });
-  let sawWasm!: () => void;
-  const wasmSeen = new Promise<void>((resolve) => {
-    sawWasm = resolve;
-  });
-  await page.route("**/*.wasm", async (route) => {
-    sawWasm();
-    await wasmRelease;
-    await route.continue();
-  });
+  const wasmRouteHandler: Parameters<typeof page.route>[1] = async (route) => {
+    wasmIntercepted = true;
+    try {
+      await wasmRelease;
+      await route.continue();
+    } finally {
+      wasmHandlerFinished = true;
+    }
+  };
+  await page.route(wasmPattern, wasmRouteHandler);
 
-  await page.goto("/");
-  await upload(page, [
-    { fixture: "neutral-1x1.png", name: "queued-1.png" },
-    { fixture: "neutral-1x1.png", name: "queued-2.png" },
-    { fixture: "neutral-1x1.png", name: "queued-3.png" },
-    { fixture: "neutral-1x1.png", name: "queued-4.png" },
-  ]);
-  await page.getByRole("button", { name: "开始处理" }).click();
-  await wasmSeen;
-  await page.getByRole("button", { name: "取消处理" }).click();
-  releaseWasm();
+  try {
+    await page.goto("/");
+    await upload(page, [
+      { fixture: "neutral-1x1.png", name: "queued-1.png" },
+      { fixture: "neutral-1x1.png", name: "queued-2.png" },
+      { fixture: "neutral-1x1.png", name: "queued-3.png" },
+      { fixture: "neutral-1x1.png", name: "queued-4.png" },
+    ]);
+    await page.getByRole("button", { name: "开始处理" }).click();
+    await expect
+      .poll(() => wasmIntercepted, {
+        message: "MozJPEG WASM request must reach the cancellation barrier",
+        timeout: 10_000,
+      })
+      .toBe(true);
+    await page.getByRole("button", { name: "取消处理" }).click();
+    releaseWasm();
 
-  await expect(page.getByRole("heading", { name: "处理结果" })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.locator("tbody tr")).toHaveCount(4);
-  await expect(page.locator("tbody tr")).toContainText([
-    /已取消/u,
-    /已取消/u,
-    /已取消/u,
-    /已取消/u,
-  ]);
-  await expect(page.getByText(/已取消 4/u)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "处理结果" })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.locator("tbody tr")).toHaveCount(4);
+    await expect(page.locator("tbody tr")).toContainText([
+      /已取消/u,
+      /已取消/u,
+      /已取消/u,
+      /已取消/u,
+    ]);
+    await expect(page.getByText(/已取消 4/u)).toBeVisible();
+  } finally {
+    releaseWasm();
+    try {
+      if (wasmIntercepted) {
+        await expect
+          .poll(() => wasmHandlerFinished, {
+            message: "blocked WASM route handler must be released",
+            timeout: 5_000,
+          })
+          .toBe(true);
+      }
+    } finally {
+      await page.unroute(wasmPattern, wasmRouteHandler);
+    }
+  }
 });
 
 test("beforeunload warning exists only for successful undownloaded outputs", async ({

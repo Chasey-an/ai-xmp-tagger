@@ -21,9 +21,15 @@ test("processing sends no image, filename or application request off the local o
     url: string;
     method: string;
     headers: Record<string, string>;
-    postData: string | null;
+    postDataBytes: number;
+    postDataBase64: string | null;
   }> = [];
   const consoleMessages: string[] = [];
+  const webSockets: Array<{
+    url: string;
+    sentFrames: Array<string | Buffer>;
+    receivedFrames: Array<string | Buffer>;
+  }> = [];
 
   await page.addInitScript(() => {
     const calls: string[] = [];
@@ -74,14 +80,28 @@ test("processing sends no image, filename or application request off the local o
     }
   });
   page.on("console", (message) => consoleMessages.push(message.text()));
+  page.on("websocket", (socket) => {
+    const record = {
+      url: socket.url(),
+      sentFrames: [] as Array<string | Buffer>,
+      receivedFrames: [] as Array<string | Buffer>,
+    };
+    webSockets.push(record);
+    socket.on("framesent", ({ payload }) => record.sentFrames.push(payload));
+    socket.on("framereceived", ({ payload }) =>
+      record.receivedFrames.push(payload),
+    );
+  });
 
   await page.goto("/");
-  page.on("request", (request) => {
+  context.on("request", (request) => {
+    const postData = request.postDataBuffer();
     requests.push({
       url: request.url(),
       method: request.method(),
       headers: request.headers(),
-      postData: request.postData(),
+      postDataBytes: postData?.byteLength ?? 0,
+      postDataBase64: postData?.toString("base64") ?? null,
     });
   });
 
@@ -109,12 +129,14 @@ test("processing sends no image, filename or application request off the local o
     expect(url.pathname).toMatch(
       /^\/assets\/(?:process\.worker-[^/]+\.js|[^/]+\.wasm)$/u,
     );
-    expect(request.postData).toBeNull();
+    expect(request.postDataBytes).toBe(0);
+    expect(request.postDataBase64).toBeNull();
   }
   expect(requests.some(({ url }) => url.endsWith(".wasm"))).toBe(true);
   expect(requests.some(({ url }) => /process\.worker-[^/]+\.js$/u.test(url))).toBe(
     true,
   );
+  expect(webSockets).toEqual([]);
 
   const requestEvidence = JSON.stringify(requests);
   const consoleEvidence = consoleMessages.join("\n");
