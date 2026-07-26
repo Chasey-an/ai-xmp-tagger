@@ -76,7 +76,13 @@ function safeNotify(
   progress: BatchProgress,
 ): void {
   try {
-    callback({ ...progress });
+    callback({
+      ...progress,
+      current:
+        progress.current === null
+          ? null
+          : { ...progress.current },
+    });
   } catch {
     // Progress UI failures must not corrupt or stop image processing.
   }

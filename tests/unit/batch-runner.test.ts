@@ -345,6 +345,61 @@ describe("BatchRunner", () => {
       ),
     ).toBe(true);
   });
+
+  it("isolates stored results and later progress from a mutating callback", async () => {
+    const client = new TrackingClient();
+    const runner = new BatchRunner({
+      conversionClients: [new TrackingClient()],
+      metadataClients: [client],
+    });
+    const observed: BatchProgress[] = [];
+    const running = runner.run(
+      [request("first-safe"), request("second-safe")],
+      (progress) => {
+        observed.push({
+          ...progress,
+          current:
+            progress.current === null ? null : { ...progress.current },
+        });
+        progress.completed = 999;
+        progress.success = 999;
+        if (progress.current !== null) {
+          progress.current.state = "cancelled";
+          progress.current.message = "mutated by callback";
+          progress.current.elapsedMs = Number.NaN;
+        }
+      },
+    );
+    await flush();
+    client.finish("first-safe", "success");
+    await flush();
+    client.finish("second-safe", "checked");
+
+    const output = await running;
+    expect(output).toMatchObject([
+      {
+        id: "first-safe",
+        state: "success",
+        message: "success",
+        elapsedMs: 1,
+      },
+      {
+        id: "second-safe",
+        state: "checked",
+        message: "checked",
+        elapsedMs: 1,
+      },
+    ]);
+    expect(observed.at(-1)).toMatchObject({
+      total: 2,
+      completed: 2,
+      success: 1,
+      checked: 1,
+      failed: 0,
+      cancelled: 0,
+      current: { id: "second-safe", state: "checked" },
+    });
+  });
 });
 
 type EventHandler = (event: MessageEvent | ErrorEvent) => void;
