@@ -2,6 +2,9 @@ name: Test and deploy GitHub Pages
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions: {}
 
