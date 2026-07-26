@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
-const PNG_1X1 = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-  "base64",
-);
+import { processUploaded, upload } from "./helpers";
 
-async function textFiles(root, extensions) {
-  const output = [];
+async function textFiles(
+  root: string,
+  extensions: ReadonlySet<string>,
+): Promise<string[]> {
+  const output: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const target = path.join(root, entry.name);
     if (entry.isDirectory()) {
@@ -42,10 +42,10 @@ test("production sources and build declare no external runtime connections", asy
 test("production CSP permits only same-origin WASM conversion requests", async ({
   page,
 }) => {
-  const cspViolations = [];
-  const pageErrors = [];
-  const networkUrls = [];
-  const responseHeaders = new Map();
+  const cspViolations: string[] = [];
+  const pageErrors: string[] = [];
+  const networkUrls: URL[] = [];
+  const responseHeaders = new Map<string, Record<string, string>>();
 
   page.on("console", (message) => {
     if (
@@ -69,7 +69,7 @@ test("production CSP permits only same-origin WASM conversion requests", async (
 
   const documentResponse = await page.goto("/");
   expect(documentResponse).not.toBeNull();
-  const documentHeaders = await documentResponse.allHeaders();
+  const documentHeaders = await documentResponse!.allHeaders();
   expect(documentHeaders["content-security-policy"]).toContain(
     "connect-src 'self'",
   );
@@ -81,20 +81,11 @@ test("production CSP permits only same-origin WASM conversion requests", async (
     "public, max-age=0, must-revalidate",
   );
 
-  await page.getByLabel("选择图片文件", { exact: true }).setInputFiles({
-    name: "csp-fixture.png",
-    mimeType: "image/png",
-    buffer: PNG_1X1,
-  });
-  const start = page.getByRole("button", { name: "开始处理" });
-  await expect(start).toBeEnabled();
-  await start.click();
+  await upload(page, ["neutral-1x1.png"]);
+  await processUploaded(page);
 
-  await expect(
-    page.getByRole("heading", { name: "处理结果" }),
-  ).toBeVisible();
   const resultRow = page.locator("tbody tr").filter({
-    hasText: "csp-fixture.png",
+    hasText: "neutral-1x1.png",
   });
   await expect(resultRow).toContainText("✓ 成功");
   await expect(resultRow).toContainText("✓ 包含");
@@ -109,23 +100,21 @@ test("production CSP permits only same-origin WASM conversion requests", async (
     /\/assets\/index-[^/]+\.js$/u.test(pathname),
   );
   expect(applicationUrl, "the production application bundle must load").toBeDefined();
-  const wasmHeaders = responseHeaders.get(wasmUrl.pathname);
-  const workerHeaders = responseHeaders.get(workerUrl.pathname);
-  const applicationHeaders = responseHeaders.get(applicationUrl.pathname);
-  expect(wasmHeaders?.["content-type"]).toBe("application/wasm");
-  expect(workerHeaders?.["content-type"]).toBe(
+  expect(responseHeaders.get(wasmUrl!.pathname)?.["content-type"]).toBe(
+    "application/wasm",
+  );
+  expect(responseHeaders.get(workerUrl!.pathname)?.["content-type"]).toBe(
     "text/javascript; charset=utf-8",
   );
-  expect(applicationHeaders?.["content-type"]).toBe(
+  expect(responseHeaders.get(applicationUrl!.pathname)?.["content-type"]).toBe(
     "text/javascript; charset=utf-8",
   );
-  expect(wasmHeaders?.["cache-control"]).toBe(
+  expect(responseHeaders.get(wasmUrl!.pathname)?.["cache-control"]).toBe(
     "public, max-age=31536000, immutable",
   );
-  expect(
-    [...new Set(networkUrls.map(({ host }) => host))],
-    "all page, worker, and WASM traffic must remain same-origin",
-  ).toEqual(["127.0.0.1:4173"]);
+  expect([...new Set(networkUrls.map(({ host }) => host))]).toEqual([
+    "127.0.0.1:4173",
+  ]);
   expect(cspViolations).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

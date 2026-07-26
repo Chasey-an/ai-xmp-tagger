@@ -1196,7 +1196,13 @@ Use `setInputFiles` with committed neutral fixtures. Assert:
 
 - [ ] **Step 3: Add the no-upload network test**
 
-After initial page load, start request recording, process fixtures, and assert every request list is empty. Also assert `fetch`, `XMLHttpRequest`, `sendBeacon`, and WebSocket are not called by application code.
+**2026-07-26 network-test erratum:** After the initial page load, start
+request recording and process fixtures. The only permitted requests are
+same-origin, bodyless `GET`/`HEAD` requests for the production Worker and
+MozJPEG WASM static assets; selected image bytes, filenames, and sentinel
+content must never appear in requests, browser storage, or console output.
+Also assert that page application code does not call `fetch`,
+`XMLHttpRequest`, `sendBeacon`, WebSocket, or EventSource.
 
 - [ ] **Step 4: Add independent ExifTool verification**
 
