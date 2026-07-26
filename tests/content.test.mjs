@@ -733,7 +733,7 @@ test("release guide preserves the required private-to-public release order", asy
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
 });
 
-test("Pages workflow is manual-only and pins current official actions by commit", async () => {
+test("Pages workflow deploys main updates and pins current official actions by commit", async () => {
   const workflow = await readFile(
     new URL("../.github/workflows/pages.yml", import.meta.url),
     "utf8",
@@ -741,8 +741,11 @@ test("Pages workflow is manual-only and pins current official actions by commit"
   const triggerBlock = workflow.match(/^on:\s*\n([\s\S]*?)^permissions:/m);
 
   assert.ok(triggerBlock, "workflow must define triggers before permissions");
-  assert.equal(triggerBlock[1].trim(), "workflow_dispatch:");
-  assert.doesNotMatch(triggerBlock[1], /^\s*push:/m);
+  assert.match(triggerBlock[1], /^\s*workflow_dispatch:\s*$/m);
+  assert.match(
+    triggerBlock[1],
+    /^\s*push:\s*\n\s*branches:\s*\n\s*-\s*main\s*$/m,
+  );
   assert.match(workflow, /^name: Test and deploy GitHub Pages$/m);
 
   for (const [action, commit, version] of [
