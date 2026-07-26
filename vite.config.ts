@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import preact from "@preact/preset-vite";
 import { defineConfig } from "vite";
 import {
   createReleaseTokens,
@@ -15,6 +16,7 @@ const tokens = createReleaseTokens(manifest, repository);
 export default defineConfig({
   base: "./",
   plugins: [
+    preact(),
     {
       name: "inject-release-downloads",
       transformIndexHtml: {
@@ -25,4 +27,10 @@ export default defineConfig({
       },
     },
   ],
+  optimizeDeps: {
+    exclude: ["@jsquash/jpeg"],
+  },
+  worker: {
+    format: "es",
+  },
 });

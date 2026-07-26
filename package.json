@@ -5,18 +5,31 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test:interop": "node --test tests/interop/exiftool.test.mjs",
+    "test": "npm run test:unit && npm run build && npm run capture:social:check && npm run test:e2e",
     "preview": "vite preview",
     "capture:social": "node scripts/capture-social-card.mjs",
-    "capture:social:check": "node scripts/capture-social-card.mjs --check",
-    "test:content": "node --test tests/content.test.mjs",
-    "test:release": "node --test tests/release-integrity.test.mjs",
-    "test:e2e": "playwright test",
-    "test": "npm run build && npm run capture:social:check && npm run test:content && npm run test:release && npm run test:e2e",
-    "test:ci-repository": "node scripts/test-ci-repository.mjs"
+    "capture:social:check": "node scripts/capture-social-card.mjs --check"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
-    "vite": "7.3.6"
+    "@preact/preset-vite": "2.10.6",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/preact": "3.2.4",
+    "@testing-library/user-event": "14.6.1",
+    "happy-dom": "20.11.0",
+    "typescript": "7.0.2",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "@jsquash/jpeg": "1.6.0",
+    "@xmldom/xmldom": "0.9.10",
+    "client-zip": "2.5.0",
+    "preact": "10.29.7"
   }
 }
