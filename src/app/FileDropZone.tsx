@@ -1,5 +1,7 @@
 import { useRef } from "preact/hooks";
 
+import { collectDroppedFiles } from "./dropped-files";
+
 const ACCEPT =
   ".jpg,.jpeg,.png,.webp,.bmp,image/jpeg,image/png,image/webp,image/bmp";
 
@@ -7,6 +9,7 @@ interface FileDropZoneProps {
   disabled: boolean;
   busy: boolean;
   onFiles: (files: File[]) => void;
+  onDropError: (error: unknown) => void;
 }
 
 function filesFrom(list: FileList | null): File[] {
@@ -17,6 +20,7 @@ export function FileDropZone({
   disabled,
   busy,
   onFiles,
+  onDropError,
 }: FileDropZoneProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -31,7 +35,11 @@ export function FileDropZone({
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        if (!disabled) onFiles(filesFrom(event.dataTransfer?.files ?? null));
+        const transfer = event.dataTransfer;
+        if (disabled || transfer === null) return;
+        void collectDroppedFiles(transfer)
+          .then(onFiles)
+          .catch(onDropError);
       }}
     >
       <div

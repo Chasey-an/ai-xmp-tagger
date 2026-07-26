@@ -644,6 +644,21 @@ a {
   outline-offset: 6px;
 }
 
+.results-heading {
+  margin-bottom: 12px;
+}
+
+.results-heading h2,
+.result-summary {
+  margin: 0;
+}
+
+.result-summary {
+  color: #364152;
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .table-shell {
   overflow: hidden;
   border: 1px solid var(--line);

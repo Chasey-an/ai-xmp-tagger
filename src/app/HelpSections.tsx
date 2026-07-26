@@ -6,8 +6,8 @@ export function HelpSections() {
         <article>
           <h3>三种模式怎么选</h3>
           <ul>
-            <li><strong>转为高清 JPG：</strong>JPG 直接写入；PNG、WebP、BMP 转为高质量 JPG。</li>
-            <li><strong>保持原格式：</strong>JPG、PNG、WebP 保持原格式写入；BMP 不支持。</li>
+            <li><strong>转为高清 JPG：</strong>JPG 直接写入；PNG、BMP、静态 WebP 转为高质量 JPG。动态 WebP 会拒绝，请切换保持原格式。</li>
+            <li><strong>保持原格式：</strong>JPG、PNG、静态或动态 WebP 保持原格式写入；BMP 不支持。</li>
             <li><strong>只检查：</strong>不改图片，只检查标签并生成 CSV；BMP 不支持。</li>
           </ul>
         </article>
@@ -16,7 +16,7 @@ export function HelpSections() {
           <ul>
             <li>输入：JPG、JPEG、PNG、WebP、BMP。</li>
             <li>输出：默认模式为 JPG；保持原格式模式为 JPG、PNG 或 WebP。</li>
-            <li>单个文件 ≤ 50 MiB；批次 ≤ 500 个且合计 ≤ 500 MiB。</li>
+            <li>单个文件 ≤ 50 MiB；批次 ≤ 300 个且合计 ≤ 500 MiB。</li>
             <li>超过 100 个或 250 MiB 会提醒，但仍可继续。</li>
           </ul>
         </article>

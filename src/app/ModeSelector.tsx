@@ -15,12 +15,12 @@ const MODES: ReadonlyArray<{
   {
     value: "jpeg-and-xmp",
     label: "转为高清 JPG 并写入标签",
-    description: "JPG 无损写入；PNG、WebP、BMP 转为高质量 JPG 后写入。",
+    description: "JPG 无损写入；PNG、BMP、静态 WebP 转为高质量 JPG。动态 WebP 请切换保持原格式。",
   },
   {
     value: "original-and-xmp",
     label: "保持原格式并写入标签",
-    description: "JPG、PNG、WebP 保持原容器，不重新编码图片画面。",
+    description: "JPG、PNG 及静态/动态 WebP 保持原容器，不重新编码图片画面。",
   },
   {
     value: "verify-only",

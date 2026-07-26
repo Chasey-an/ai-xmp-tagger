@@ -41,11 +41,26 @@ export function ResultTable({
   mode,
   headingRef,
 }: ResultTableProps) {
+  const counts = results.reduce(
+    (summary, result) => {
+      summary[result.state] += 1;
+      return summary;
+    },
+    { success: 0, checked: 0, failed: 0, cancelled: 0 },
+  );
+  const summary =
+    `成功 ${counts.success} / 已检查 ${counts.checked} / ` +
+    `失败 ${counts.failed} / 已取消 ${counts.cancelled} / ` +
+    `总计 ${results.length}`;
+
   return (
     <section class="results-panel" aria-labelledby="results-title">
-      <h2 id="results-title" ref={headingRef} tabIndex={-1}>
-        处理结果
-      </h2>
+      <div class="section-bar results-heading">
+        <h2 id="results-title" ref={headingRef} tabIndex={-1}>
+          处理结果
+        </h2>
+        <p class="result-summary" aria-live="polite">{summary}</p>
+      </div>
       <div class="table-shell">
         <table>
           <thead>

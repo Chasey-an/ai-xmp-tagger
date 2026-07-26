@@ -1,10 +1,12 @@
 import type { SelectedImage } from "../core/file-intake";
+import type { ProcessingMode } from "../core/types";
 
 interface BatchPreviewProps {
   images: readonly SelectedImage[];
   totalBytes: number;
   warning: string | null;
   disabled: boolean;
+  mode: ProcessingMode;
   onRemove: (id: string) => void;
   onClear: () => void;
 }
@@ -19,11 +21,49 @@ function formatLabel(format: SelectedImage["format"]): string {
   return format === "jpeg" ? "JPG" : format.toUpperCase();
 }
 
+function guidance(
+  image: SelectedImage,
+  mode: ProcessingMode,
+): string {
+  let message: string;
+  switch (mode) {
+    case "jpeg-and-xmp":
+      if (image.format === "jpeg") {
+        message = "JPG 直接写入 XMP，不重新编码";
+      } else if (image.format === "webp") {
+        message =
+          "静态 WebP 将转为高清 JPG；动态 WebP 请切换“保持原格式”";
+      } else {
+        message = `${formatLabel(image.format)} 将转为高清 JPG`;
+      }
+      break;
+    case "original-and-xmp":
+      if (image.format === "bmp") {
+        message = "BMP 不支持保持原格式模式";
+      } else if (image.format === "webp") {
+        message = "静态或动态 WebP 保持原格式写入 XMP";
+      } else {
+        message = `${formatLabel(image.format)} 保持原格式写入 XMP`;
+      }
+      break;
+    case "verify-only":
+      message =
+        image.format === "bmp"
+          ? "BMP 不支持只检查模式"
+          : "只检查 XMP，不修改图片";
+      break;
+  }
+  return image.warning === null
+    ? message
+    : `${image.warning}；${message}`;
+}
+
 export function BatchPreview({
   images,
   totalBytes,
   warning,
   disabled,
+  mode,
   onRemove,
   onClear,
 }: BatchPreviewProps) {
@@ -67,10 +107,7 @@ export function BatchPreview({
             </span>
             <span class="file-size">{sizeLabel(image.file.size)}</span>
             <span class="file-warning">
-              {image.warning ??
-                (image.format === "jpeg"
-                  ? "保持画面数据"
-                  : "默认模式将转为 JPG")}
+              {guidance(image, mode)}
             </span>
             <button
               type="button"

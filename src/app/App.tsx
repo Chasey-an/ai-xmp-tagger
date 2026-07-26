@@ -7,6 +7,7 @@ import {
 } from "preact/hooks";
 
 import { BatchRunner, type BatchProgress } from "../core/batch-runner";
+import { ProcessingError } from "../core/errors";
 import {
   applyBatchPolicy,
   inspectSelectedFile,
@@ -24,6 +25,7 @@ import type { ProcessRequest, ProcessResult } from "../core/process-file";
 import type { ProcessingMode } from "../core/types";
 import { BatchPreview } from "./BatchPreview";
 import { DownloadPanel } from "./DownloadPanel";
+import { relativePathForFile } from "./dropped-files";
 import { FileDropZone } from "./FileDropZone";
 import { HelpSections } from "./HelpSections";
 import { ModeSelector } from "./ModeSelector";
@@ -63,7 +65,7 @@ function createDefaultDependencies(): AppDependencies {
         files.map((file) =>
           inspectSelectedFile(
             file,
-            file.webkitRelativePath || file.name,
+            relativePathForFile(file),
           ),
         ),
       ),
@@ -82,15 +84,45 @@ function createDefaultDependencies(): AppDependencies {
   };
 }
 
-function safeErrorMessage(kind: "intake" | "batch" | "download"): string {
+function safeErrorMessage(kind: "batch" | "download"): string {
   switch (kind) {
-    case "intake":
-      return "无法添加这些图片。请确认格式和大小后重试。";
     case "batch":
       return "批次处理失败，请重试；如仍失败，请减少文件数量。";
     case "download":
       return "打包失败，请重试。处理结果仍保留在当前页面。";
   }
+}
+
+function safeIntakeError(error: unknown): string {
+  if (!(error instanceof ProcessingError)) {
+    return "无法添加这些图片。请确认格式和大小后重试。";
+  }
+
+  if (error.code === "LIMIT_EXCEEDED") {
+    if (/单个文件|50 MiB/u.test(error.message)) {
+      return "单个文件不能超过 50 MiB。请压缩图片后重试，或使用桌面应用处理较大的文件。";
+    }
+    if (/文件数量|300 个/u.test(error.message)) {
+      return "一次最多处理 300 个文件。请拆分为多个批次；大量图片建议使用桌面应用。";
+    }
+    if (/总大小|500 MiB/u.test(error.message)) {
+      return "批次总大小不能超过 500 MiB。请拆分批次后重试，或使用桌面应用。";
+    }
+    if (/嵌套/u.test(error.message)) {
+      return "文件夹嵌套层级过深。请拆分文件夹后重试。";
+    }
+    return "拖入的文件夹内容过于复杂。请拆分文件夹后重试。";
+  }
+  if (error.code === "UNSUPPORTED_FORMAT") {
+    return "包含不支持的文件。请仅选择 JPG、JPEG、PNG、WebP 或 BMP 图片。";
+  }
+  if (
+    error.code === "CORRUPT_CONTAINER" &&
+    /文件夹/u.test(error.message)
+  ) {
+    return "无法读取拖入的文件夹。请改用“选择文件夹”按钮，或拆分文件夹后重试。";
+  }
+  return "无法读取图片。请确认文件完整后重试。";
 }
 
 function enrichResults(
@@ -221,9 +253,9 @@ export function App({ dependencies }: AppProps) {
       setImages(merged);
       setBatchWarning(policy.warning);
       setPhase(merged.length > 0 ? "ready" : "idle");
-    } catch {
+    } catch (error) {
       if (generation === intakeGeneration.current) {
-        setError(safeErrorMessage("intake"));
+        setError(safeIntakeError(error));
       }
     } finally {
       if (generation === intakeGeneration.current) {
@@ -240,9 +272,9 @@ export function App({ dependencies }: AppProps) {
       const policy = applyBatchPolicy(next);
       setBatchWarning(policy.warning);
       setPhase(next.length > 0 ? "ready" : "idle");
-    } catch {
+    } catch (error) {
       setBatchWarning(null);
-      setError(safeErrorMessage("intake"));
+      setError(safeIntakeError(error));
     }
   };
 
@@ -379,12 +411,16 @@ export function App({ dependencies }: AppProps) {
               disabled={locked}
               busy={intakeBusy}
               onFiles={addFiles}
+              onDropError={(dropError) =>
+                setError(safeIntakeError(dropError))
+              }
             />
             <BatchPreview
               images={images}
               totalBytes={totalBytesOf(images)}
               warning={batchWarning}
               disabled={locked}
+              mode={mode}
               onRemove={(id) =>
                 updateImages(images.filter((image) => image.id !== id))
               }

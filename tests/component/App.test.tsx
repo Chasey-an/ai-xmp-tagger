@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App, type AppDependencies } from "../../src/app/App";
+import {
+  collectDroppedFiles,
+  relativePathForFile,
+} from "../../src/app/dropped-files";
 import type { BatchProgress } from "../../src/core/batch-runner";
+import { ProcessingError } from "../../src/core/errors";
 import type { SelectedImage } from "../../src/core/file-intake";
 import type { ProcessRequest, ProcessResult } from "../../src/core/process-file";
 import type { ImageFormat } from "../../src/core/types";
@@ -212,14 +217,14 @@ describe("browser-local XMP workbench", () => {
 
     fireEvent.change(inputs().files, {
       target: {
-        files: Array.from({ length: 501 }, (_, index) =>
+        files: Array.from({ length: 301 }, (_, index) =>
           file(`too-many-${index}.png`),
         ),
       },
     });
     expect(
       await screen.findByRole("alert"),
-    ).toHaveTextContent("无法添加这些图片");
+    ).toHaveTextContent("一次最多处理 300 个文件");
     expect(screen.getAllByText(/image-\d+\.png/)).toHaveLength(101);
   });
 
@@ -248,7 +253,7 @@ describe("browser-local XMP workbench", () => {
     );
     fireEvent.change(inputs().files, { target: { files: [oversized] } });
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "无法添加这些图片",
+      "单个文件不能超过 50 MiB",
     );
     expect(screen.getByRole("button", { name: "开始处理" })).toBeDisabled();
 
@@ -259,9 +264,33 @@ describe("browser-local XMP workbench", () => {
     );
     fireEvent.change(inputs().files, { target: { files: hugeBatch } });
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "无法添加这些图片",
+      "批次总大小不能超过 500 MiB",
     );
     expect(screen.getByRole("button", { name: "开始处理" })).toBeDisabled();
+  });
+
+  it.each([
+    [
+      new ProcessingError("LIMIT_EXCEEDED", "单个文件超过 50 MiB 限制"),
+      "单个文件不能超过 50 MiB",
+    ],
+    [
+      new ProcessingError("LIMIT_EXCEEDED", "文件数量超过 300 个限制"),
+      "一次最多处理 300 个文件",
+    ],
+    [
+      new ProcessingError("LIMIT_EXCEEDED", "批次文件总大小超过 500 MiB 限制"),
+      "批次总大小不能超过 500 MiB",
+    ],
+  ])("keeps safe actionable intake limit guidance", async (failure, expected) => {
+    const inspectFiles = vi.fn(async () => Promise.reject(failure));
+    render(<App dependencies={dependencies({ inspectFiles })} />);
+
+    fireEvent.change(inputs().files, {
+      target: { files: [file("limit.png")] },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
+    expect(screen.getByRole("alert")).toHaveTextContent(/拆分|压缩|桌面应用/);
   });
 
   it("locks intake and mode, reports progress, and enters stopping on cancel", async () => {
@@ -369,6 +398,39 @@ describe("browser-local XMP workbench", () => {
     expect(screen.getByRole("button", { name: "开始处理" })).toBeEnabled();
   });
 
+  it("updates per-file guidance for every mode including animated WebP", async () => {
+    const jpg = file("photo.jpg");
+    const webp = file("motion.webp");
+    const bmp = file("source.bmp");
+    const inspectFiles = vi.fn(async () => [
+      selectedImage(jpg, "jpg", "jpeg"),
+      selectedImage(webp, "webp", "webp"),
+      selectedImage(bmp, "bmp", "bmp"),
+    ]);
+    render(<App dependencies={dependencies({ inspectFiles })} />);
+    await addFiles([jpg, webp, bmp]);
+
+    expect(screen.getByText(/动态 WebP 请切换“保持原格式”/)).toBeInTheDocument();
+    expect(
+      screen.getByText("JPG 直接写入 XMP，不重新编码"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/BMP 将转为高清 JPG/)).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("radio", { name: "保持原格式并写入标签" }),
+    );
+    expect(
+      screen.getByText("静态或动态 WebP 保持原格式写入 XMP"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/BMP 不支持保持原格式模式/)).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("radio", { name: "只检查 XMP 标签" }),
+    );
+    expect(screen.getAllByText(/只检查 XMP，不修改图片/)).toHaveLength(2);
+    expect(screen.getByText(/BMP 不支持只检查模式/)).toBeInTheDocument();
+  });
+
   it("offers a direct image and separate CSV for one successful output", async () => {
     const download = vi.fn();
     render(<App dependencies={dependencies({ download })} />);
@@ -422,6 +484,11 @@ describe("browser-local XMP workbench", () => {
     await userEvent.click(screen.getByRole("button", { name: "开始处理" }));
 
     expect(await screen.findByText("文件损坏")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "成功 2 / 已检查 0 / 失败 1 / 已取消 0 / 总计 3",
+      ),
+    ).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: "下载 2 个成功文件（ZIP）" }),
     );
@@ -626,5 +693,250 @@ describe("browser-local XMP workbench", () => {
       "无法添加这些图片",
     );
     expect(screen.getByRole("alert")).not.toHaveTextContent("Users");
+  });
+
+  it("recursively reads dropped folders in batches and preserves safe paths", async () => {
+    const first = file("first.png");
+    const second = file("second.png");
+    const captured: File[][] = [];
+    const inspectFiles = vi.fn(async (sources: File[]) => {
+      captured.push(sources);
+      return sources.map((source, index) =>
+        selectedImage(
+          source,
+          `drop-${index}`,
+          "png",
+          relativePathForFile(source),
+        ),
+      );
+    });
+
+    function fileEntry(source: File, fullPath: string) {
+      return {
+        isFile: true,
+        isDirectory: false,
+        name: source.name,
+        fullPath,
+        file(success: (value: File) => void) {
+          success(source);
+        },
+      };
+    }
+
+    const nestedReader = vi
+      .fn()
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([fileEntry(first, "/商品图/子目录/first.png")]),
+      )
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([fileEntry(second, "/商品图/子目录/second.png")]),
+      )
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([]),
+      );
+    const nested = {
+      isFile: false,
+      isDirectory: true,
+      name: "子目录",
+      fullPath: "/商品图/子目录",
+      createReader: () => ({ readEntries: nestedReader }),
+    };
+    const rootReader = vi
+      .fn()
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([nested]),
+      )
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([]),
+      );
+    const root = {
+      isFile: false,
+      isDirectory: true,
+      name: "商品图",
+      fullPath: "/商品图",
+      createReader: () => ({ readEntries: rootReader }),
+    };
+
+    render(<App dependencies={dependencies({ inspectFiles })} />);
+    fireEvent.drop(
+      screen.getByRole("button", { name: "添加图片" }).closest(".drop-zone")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => root }],
+          files: [],
+        },
+      },
+    );
+
+    await waitFor(() => expect(inspectFiles).toHaveBeenCalledTimes(1));
+    expect(captured[0]).toHaveLength(2);
+    expect(captured[0]?.map(relativePathForFile)).toEqual([
+      "商品图/子目录/first.png",
+      "商品图/子目录/second.png",
+    ]);
+    expect(rootReader).toHaveBeenCalledTimes(2);
+    expect(nestedReader).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to DataTransfer files and contains directory entry failures", async () => {
+    const fallback = file("fallback.png");
+    const inspectFiles = vi.fn(async (sources: File[]) =>
+      sources.map((source) => selectedImage(source, source.name)),
+    );
+    const view = render(<App dependencies={dependencies({ inspectFiles })} />);
+    fireEvent.drop(
+      screen.getByRole("button", { name: "添加图片" }).closest(".drop-zone")!,
+      {
+        dataTransfer: {
+          items: [{ kind: "file" }],
+          files: [fallback],
+        },
+      },
+    );
+    await waitFor(() =>
+      expect(inspectFiles).toHaveBeenCalledWith([fallback]),
+    );
+
+    view.unmount();
+    const failedInspect = vi.fn();
+    const brokenDirectory = {
+      isFile: false,
+      isDirectory: true,
+      name: "broken",
+      fullPath: "/broken",
+      createReader: () => ({
+        readEntries(
+          _success: (entries: unknown[]) => void,
+          failure: (error: Error) => void,
+        ) {
+          failure(new Error("/Users/private/secret"));
+        },
+      }),
+    };
+    render(<App dependencies={dependencies({ inspectFiles: failedInspect })} />);
+    fireEvent.drop(
+      screen.getByRole("button", { name: "添加图片" }).closest(".drop-zone")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => brokenDirectory }],
+          files: [],
+        },
+      },
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "无法读取拖入的文件夹",
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Users");
+    expect(failedInspect).not.toHaveBeenCalled();
+  });
+
+  it("stops dropped folder traversal safely at 301 files", async () => {
+    const entries = Array.from({ length: 301 }, (_, index) => {
+      const source = file(`image-${index}.png`);
+      return {
+        isFile: true,
+        isDirectory: false,
+        name: source.name,
+        fullPath: `/folder/${source.name}`,
+        file(success: (value: File) => void) {
+          success(source);
+        },
+      };
+    });
+    const reader = vi
+      .fn()
+      .mockImplementationOnce((success: (values: unknown[]) => void) =>
+        success(entries),
+      )
+      .mockImplementationOnce((success: (values: unknown[]) => void) =>
+        success([]),
+      );
+    const directory = {
+      isFile: false,
+      isDirectory: true,
+      name: "folder",
+      fullPath: "/folder",
+      createReader: () => ({ readEntries: reader }),
+    };
+    const inspectFiles = vi.fn();
+    render(<App dependencies={dependencies({ inspectFiles })} />);
+    fireEvent.drop(
+      screen.getByRole("button", { name: "添加图片" }).closest(".drop-zone")!,
+      {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => directory }],
+          files: [],
+        },
+      },
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "一次最多处理 300 个文件",
+    );
+    expect(inspectFiles).not.toHaveBeenCalled();
+  });
+
+  it("bounds dropped-folder depth and ignores repeated directory cycles", async () => {
+    function directoryAt(depth: number) {
+      return {
+        isFile: false,
+        isDirectory: true,
+        name: `depth-${depth}`,
+        fullPath: `/root/${depth}`,
+        createReader() {
+          let delivered = false;
+          return {
+            readEntries(success: (entries: unknown[]) => void) {
+              if (delivered) {
+                success([]);
+                return;
+              }
+              delivered = true;
+              success([directoryAt(depth + 1)]);
+            },
+          };
+        },
+      };
+    }
+
+    await expect(
+      collectDroppedFiles({
+        items: [{ kind: "file", webkitGetAsEntry: () => directoryAt(0) }],
+        files: [],
+      } as unknown as DataTransfer),
+    ).rejects.toMatchObject({
+      code: "LIMIT_EXCEEDED",
+      message: expect.stringContaining("嵌套"),
+    });
+
+    const cyclicReader = vi.fn();
+    const cyclicDirectory = {
+      isFile: false,
+      isDirectory: true,
+      name: "cycle",
+      fullPath: "/cycle",
+      createReader: () => ({ readEntries: cyclicReader }),
+    };
+    cyclicReader
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([cyclicDirectory]),
+      )
+      .mockImplementationOnce((success: (entries: unknown[]) => void) =>
+        success([]),
+      );
+
+    await expect(
+      collectDroppedFiles({
+        items: [
+          {
+            kind: "file",
+            webkitGetAsEntry: () => cyclicDirectory,
+          },
+        ],
+        files: [],
+      } as unknown as DataTransfer),
+    ).resolves.toEqual([]);
+    expect(cyclicReader).toHaveBeenCalledTimes(2);
   });
 });
