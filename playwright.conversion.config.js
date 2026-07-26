@@ -1,11 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./tests",
-  testMatch: "**/*.spec.js",
-  testIgnore: "**/e2e/conversion.spec.js",
+  testDir: "./tests/e2e",
+  testMatch: "**/conversion.spec.js",
+  timeout: 30_000,
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: "http://127.0.0.1:4174",
     trace: "retain-on-failure",
   },
   projects: [
@@ -16,8 +16,8 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "npm run build && npm run preview -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
+      "npm run build:conversion && vite preview --config vite.conversion.config.ts --host 127.0.0.1 --port 4174",
+    url: "http://127.0.0.1:4174/",
     reuseExistingServer: false,
   },
 });

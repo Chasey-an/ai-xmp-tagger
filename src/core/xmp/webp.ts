@@ -64,6 +64,10 @@ interface CanvasDimensions {
   height: number;
 }
 
+export interface WebpInspection extends CanvasDimensions {
+  animated: boolean;
+}
+
 function corruptContainer(message: string): ProcessingError {
   return new ProcessingError("CORRUPT_CONTAINER", message);
 }
@@ -852,12 +856,23 @@ export function writeWebpXmp(
 }
 
 export function isAnimatedWebp(bytes: Uint8Array): boolean {
+  return inspectWebp(bytes).animated;
+}
+
+export function inspectWebp(bytes: Uint8Array): WebpInspection {
   const parsed = parseWebp(bytes);
-  return (
+  const animated =
     (parsed.vp8x !== null &&
       (parsed.vp8x.data[0]! & VP8X_ANIMATION_FLAG) !== 0) ||
     parsed.chunks.some(
       ({ fourcc }) => fourcc === "ANIM" || fourcc === "ANMF",
-    )
-  );
+    );
+  const dimensions = parsed.vp8x === null
+    ? simpleImageFeatures(parsed.chunks)
+    : vp8xCanvas(parsed.vp8x);
+  return {
+    width: dimensions.width,
+    height: dimensions.height,
+    animated,
+  };
 }
