@@ -150,7 +150,7 @@ export async function createOutputZip(
   for (const [resultIndex, result] of snapshots.entries()) {
     if (
       result.state === "success" &&
-      result.output !== null &&
+      result.output instanceof Blob &&
       result.outputFormat !== null
     ) {
       successful.push({

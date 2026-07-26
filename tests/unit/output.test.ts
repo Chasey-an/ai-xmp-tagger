@@ -394,10 +394,10 @@ describe("processing CSV", () => {
         message: "转发 UNC 文件 //server/share/secret.jpg 失败",
       }),
       result({
-        message: "错误:/workspace/private/secret.jpg",
+        message: "错误:/workspace/team/photo.jpg",
       }),
       result({
-        message: "路径=/workspace/private/secret.jpg",
+        message: "路径=/workspace/team/private.jpg",
       }),
       result({
         message:
@@ -424,7 +424,7 @@ describe("processing CSV", () => {
 
   test("preserves ordinary prose and http URLs in safe messages", () => {
     const message =
-      "支持 JPEG/PNG/WebP；帮助：https://example.com/help 和 http://example.org/docs";
+      "支持 JPEG/PNG/WebP；帮助：https://example.com/home/docs 和 https://example.com/Users/docs 以及 http://example.org/private/docs";
     const csv = createCsv([result({ message })]);
     expect(csv).toContain(message);
     expect(csv).not.toContain("本地文件路径");
@@ -449,6 +449,19 @@ describe("processing CSV", () => {
     );
     expect(csv).not.toContain("photo_xmp.jpg");
     expect(csv).not.toContain("fake-extension");
+  });
+
+  test("derives a real Task 8 success filename when outputName is null", () => {
+    const csv = createCsv([
+      result({
+        relativePath: "folder/source.png",
+        outputName: null,
+        outputFormat: "jpeg",
+      }),
+    ]);
+    expect(csv).toContain(
+      "folder/source.png,source_xmp.jpg,成功",
+    );
   });
 });
 
@@ -675,6 +688,24 @@ describe("output ZIP", () => {
     );
     const entries = await unzipStored(created.blob);
     expect(created.filename).toBe("AI_XMP_Output_20261109-0807.zip");
+    expect(entries.map((entry) => entry.name)).toEqual([
+      "AI_XMP_Output/processing-report.csv",
+    ]);
+  });
+
+  test("excludes invalid non-Blob success outputs at the ZIP boundary", async () => {
+    const invalid = result({
+      outputName: "invalid_xmp.jpg",
+    }) as unknown as ReportableResult;
+    Object.assign(invalid, {
+      output: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+    });
+
+    const created = await createOutputZip(
+      [invalid],
+      new Date(2026, 0, 2, 3, 4),
+    );
+    const entries = await unzipStored(created.blob);
     expect(entries.map((entry) => entry.name)).toEqual([
       "AI_XMP_Output/processing-report.csv",
     ]);

@@ -1,6 +1,7 @@
 import type { ProcessResult } from "../process-file";
 import {
   alignOutputNameToFormat,
+  planOutputName,
   sanitizeRelativePath,
 } from "./names";
 
@@ -67,6 +68,18 @@ function safeFilename(
           );
     return basename(safeOutputName);
   }
+  if (
+    result.state === "success" &&
+    result.outputFormat !== null
+  ) {
+    return basename(
+      planOutputName(
+        relativePath,
+        "original-and-xmp",
+        result.outputFormat,
+      ),
+    );
+  }
   return basename(relativePath);
 }
 
@@ -103,33 +116,34 @@ function protectFormula(value: string): string {
 }
 
 function containsAbsoluteLocalPath(value: string): boolean {
+  const inspectable = value.replace(
+    /\bhttps?:\/\/(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::\d{1,5})?(?:\/[^\s<>"'\\，。；！？）】]*)?/giu,
+    (url) => " ".repeat(url.length),
+  );
   const windowsDrive =
-    /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/u.test(value);
+    /(?:^|[^A-Za-z0-9])[A-Za-z]:[\\/]/u.test(inspectable);
   const windowsNetworkOrDevice =
-    value.includes("\\\\");
+    inspectable.includes("\\\\");
   const forwardSlashNetworkOrDevice =
-    /(?:^|[^:])\/\/[^/\s]+\/[^/\s]+/u.test(value);
-  const commonPosixRoot =
-    /\/(?:Users|home|private|var|tmp|Volumes|root|etc|opt|srv|mnt|media)\//iu.test(
-      value,
+    /(?:^|[^:])\/\/[^/\s]+\/[^/\s]+/u.test(
+      inspectable,
     );
   const genericPosixAbsolute =
-    /(?:^|[\s("'`，。；;：=])\/(?!\/)[^/\s]+\/[^/\s]+/u.test(
-      value,
+    /(?:^|[\s("'`，。；;:：=])\/(?!\/)[^/\s]+\/[^/\s]+/u.test(
+      inspectable,
     );
   const posixRootFile =
-    /(?:^|[\s("'`，。；;：=])\/(?!\/)[^/\s]+(?=$|[\s,，。；;:：!?！？)"'])/u.test(
-      value,
+    /(?:^|[\s("'`，。；;:：=])\/(?!\/)[^/\s]+(?=$|[\s,，。；;:：!?！？)"'])/u.test(
+      inspectable,
     );
   const windowsCurrentDrive =
-    /(?:^|[\s("'`，。；;：=])\\(?!\\)[^\\\r\n]+\\[^\\\r\n]+/u.test(
-      value,
+    /(?:^|[\s("'`，。；;:：=])\\(?!\\)[^\\\r\n]+\\[^\\\r\n]+/u.test(
+      inspectable,
     );
   return (
     windowsDrive ||
     windowsNetworkOrDevice ||
     forwardSlashNetworkOrDevice ||
-    commonPosixRoot ||
     genericPosixAbsolute ||
     posixRootFile ||
     windowsCurrentDrive
