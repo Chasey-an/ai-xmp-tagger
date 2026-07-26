@@ -71,7 +71,7 @@ scope.addEventListener("message", (event) => {
       scope.postMessage({
         type: "result",
         requestId: request.requestId,
-        result,
+        payload: result,
       });
     })
     .catch((error: unknown) => {
@@ -79,8 +79,10 @@ scope.addEventListener("message", (event) => {
       scope.postMessage({
         type: "error",
         requestId: request.requestId,
-        code: safe.code,
-        message: safe.message,
+        error: {
+          code: safe.code,
+          message: safe.message,
+        },
       });
     });
 });

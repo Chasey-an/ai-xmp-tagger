@@ -7,6 +7,7 @@ import {
   WorkerClient,
   type WorkerClientLike,
 } from "../worker/client";
+import { isProcessResult } from "../worker/protocol";
 
 export interface BatchProgress {
   total: number;
@@ -197,12 +198,9 @@ export class BatchRunner {
         const request = context.requests[index]!;
         try {
           const workerResult = await client.process(request);
-          const finalResult =
-            context.cancelled
-              ? cancellationResult(request)
-              : workerResult.id === request.id
-                ? workerResult
-                : failureResult(request);
+          const finalResult = context.cancelled
+            ? cancellationResult(request)
+            : workerResult;
           this.settle(context, index, finalResult);
         } catch {
           this.settle(
@@ -225,11 +223,15 @@ export class BatchRunner {
     if (context.settled[index]) {
       return;
     }
+    const expectedRequest = context.requests[index]!;
+    const safeResult = isProcessResult(result, expectedRequest.id)
+      ? result
+      : failureResult(expectedRequest);
     context.settled[index] = true;
-    context.results[index] = result;
+    context.results[index] = safeResult;
     context.progress.completed += 1;
-    context.progress[result.state] += 1;
-    context.progress.current = result;
+    context.progress[safeResult.state] += 1;
+    context.progress.current = safeResult;
     safeNotify(context.onProgress, context.progress);
   }
 }

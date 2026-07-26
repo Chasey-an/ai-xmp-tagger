@@ -10,6 +10,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from "./protocol";
+import { isProcessResult } from "./protocol";
 
 type WorkerEventHandler = (event: MessageEvent | ErrorEvent) => void;
 
@@ -30,6 +31,7 @@ type WorkerFactory = () => WorkerLike;
 
 interface PendingResult {
   kind: "process";
+  payloadId: string;
   resolve: (result: ProcessResult) => void;
   reject: (error: ProcessingError) => void;
 }
@@ -98,12 +100,18 @@ function isResponse(value: unknown): value is WorkerResponse {
     case "pong":
       return true;
     case "result":
-      return typeof candidate.result === "object" && candidate.result !== null;
+      return "payload" in candidate;
     case "error":
+      if (typeof candidate.error !== "object" || candidate.error === null) {
+        return false;
+      }
       return (
-        typeof candidate.code === "string" &&
-        ERROR_CODES.has(candidate.code as ProcessingErrorCode) &&
-        typeof candidate.message === "string"
+        typeof (candidate.error as Record<string, unknown>).code === "string" &&
+        ERROR_CODES.has(
+          (candidate.error as Record<string, unknown>)
+            .code as ProcessingErrorCode,
+        ) &&
+        typeof (candidate.error as Record<string, unknown>).message === "string"
       );
     default:
       return false;
@@ -161,6 +169,7 @@ export class WorkerClient implements WorkerClientLike {
         kind === "process"
           ? {
               kind,
+              payloadId: (payload as ProcessRequest).id,
               resolve: resolve as (result: ProcessResult) => void,
               reject,
             }
@@ -219,7 +228,12 @@ export class WorkerClient implements WorkerClientLike {
       this.pending.delete(response.requestId);
 
       if (response.type === "error") {
-        pending.reject(new ProcessingError(response.code, response.message));
+        pending.reject(
+          new ProcessingError(
+            response.error.code,
+            response.error.message,
+          ),
+        );
         return;
       }
       if (response.type === "pong" && pending.kind === "ping") {
@@ -227,7 +241,13 @@ export class WorkerClient implements WorkerClientLike {
         return;
       }
       if (response.type === "result" && pending.kind === "process") {
-        pending.resolve(response.result);
+        if (!isProcessResult(response.payload, pending.payloadId)) {
+          const error = runtimeError();
+          pending.reject(error);
+          this.failGeneration(error);
+          return;
+        }
+        pending.resolve(response.payload);
         return;
       }
       pending.reject(runtimeError());

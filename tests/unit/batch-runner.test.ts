@@ -30,14 +30,15 @@ function result(
   id: string,
   state: ProcessResult["state"] = "checked",
 ): ProcessResult {
+  const succeeded = state === "success";
   return {
     id,
     state,
-    output: null,
-    outputFormat: null,
+    output: succeeded ? new Blob(["jpeg"], { type: "image/jpeg" }) : null,
+    outputFormat: succeeded ? "jpeg" : null,
     outputName: null,
-    subjectExists: false,
-    targetTagCount: 0,
+    subjectExists: succeeded,
+    targetTagCount: succeeded ? 1 : 0,
     reencoded: false,
     message: state,
     elapsedMs: 1,
@@ -296,6 +297,54 @@ describe("BatchRunner", () => {
     await flush();
     expect(updates).toHaveLength(count);
   });
+
+  it("contains a malformed injected client result without corrupting progress counts", async () => {
+    const malformedClient: WorkerClientLike = {
+      process: async (payload) =>
+        ({
+          ...result(payload.id),
+          state: "surprise",
+          elapsedMs: Number.NaN,
+        }) as unknown as ProcessResult,
+      cancelAll: () => undefined,
+    };
+    const updates: BatchProgress[] = [];
+    const runner = new BatchRunner({
+      conversionClients: [new TrackingClient()],
+      metadataClients: [malformedClient],
+    });
+
+    const output = await runner.run(
+      [request("unsafe")],
+      (progress) => updates.push(progress),
+    );
+
+    expect(output).toMatchObject([
+      {
+        id: "unsafe",
+        state: "failed",
+        message: "处理失败，请重试。",
+      },
+    ]);
+    expect(updates.at(-1)).toMatchObject({
+      total: 1,
+      completed: 1,
+      success: 0,
+      checked: 0,
+      failed: 1,
+      cancelled: 0,
+    });
+    expect(
+      updates.every(
+        (progress) =>
+          progress.completed ===
+          progress.success +
+            progress.checked +
+            progress.failed +
+            progress.cancelled,
+      ),
+    ).toBe(true);
+  });
 });
 
 type EventHandler = (event: MessageEvent | ErrorEvent) => void;
@@ -361,12 +410,12 @@ describe("WorkerClient", () => {
     worker.emit("message", {
       type: "result",
       requestId: secondId,
-      result: result("second"),
+      payload: result("second"),
     });
     worker.emit("message", {
       type: "result",
       requestId: firstId,
-      result: result("first"),
+      payload: result("first"),
     });
 
     await expect(first).resolves.toMatchObject({ id: "first" });
@@ -400,14 +449,14 @@ describe("WorkerClient", () => {
     firstWorker.emit("message", {
       type: "result",
       requestId: staleId,
-      result: result("wrong"),
+      payload: result("wrong"),
     });
     const secondWorker = workers[1]!;
     const laterId = (secondWorker.posted[0] as { requestId: string }).requestId;
     secondWorker.emit("message", {
       type: "result",
       requestId: laterId,
-      result: result("later"),
+      payload: result("later"),
     });
     await expect(later).resolves.toMatchObject({ id: "later" });
     expect(secondWorker.listeners.get("message")?.size).toBe(1);
@@ -438,6 +487,57 @@ describe("WorkerClient", () => {
     replacement.emit("message", { nope: true });
     await expect(malformed).rejects.toMatchObject({
       code: "CORRUPT_CONTAINER",
+    });
+  });
+
+  it("accepts the exact nested error response shape", async () => {
+    const worker = new FakeWorker();
+    const client = new WorkerClient(() => worker);
+    const pending = client.process(request("known-error"));
+    const requestId = (worker.posted[0] as { requestId: string }).requestId;
+    worker.emit("message", {
+      type: "error",
+      requestId,
+      error: {
+        code: "LIMIT_EXCEEDED",
+        message: "图片超过安全处理上限。",
+      },
+    });
+    await expect(pending).rejects.toMatchObject({
+      name: "ProcessingError",
+      code: "LIMIT_EXCEEDED",
+      message: "图片超过安全处理上限。",
+    });
+  });
+
+  it.each([
+    ["missing fields", { id: "malformed", state: "success" }],
+    ["unknown state", { ...result("malformed"), state: "surprise" }],
+    ["wrong payload id", result("someone-else")],
+    ["negative elapsed time", { ...result("malformed"), elapsedMs: -1 }],
+    ["NaN target count", { ...result("malformed"), targetTagCount: Number.NaN }],
+    [
+      "incoherent checked output",
+      {
+        ...result("malformed"),
+        output: new Blob(["unexpected"]),
+        outputFormat: "jpeg",
+      },
+    ],
+  ])("rejects a correlated malformed result: %s", async (_label, payload) => {
+    const worker = new FakeWorker();
+    const client = new WorkerClient(() => worker);
+    const pending = client.process(request("malformed"));
+    const requestId = (worker.posted[0] as { requestId: string }).requestId;
+    worker.emit("message", {
+      type: "result",
+      requestId,
+      payload,
+    });
+    await expect(pending).rejects.toMatchObject({
+      name: "ProcessingError",
+      code: "CORRUPT_CONTAINER",
+      message: "后台处理器意外停止，请重试。",
     });
   });
 });
