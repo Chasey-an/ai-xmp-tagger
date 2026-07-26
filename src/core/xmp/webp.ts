@@ -1,5 +1,9 @@
 import { MAX_XMP_BYTES } from "../constants";
 import { ProcessingError } from "../errors";
+import {
+  readExifOrientation,
+  type ExifOrientation,
+} from "../exif-orientation";
 
 export interface WebpChunk {
   fourcc: string;
@@ -66,6 +70,7 @@ interface CanvasDimensions {
 
 export interface WebpInspection extends CanvasDimensions {
   animated: boolean;
+  orientation: ExifOrientation;
 }
 
 function corruptContainer(message: string): ProcessingError {
@@ -856,7 +861,14 @@ export function writeWebpXmp(
 }
 
 export function isAnimatedWebp(bytes: Uint8Array): boolean {
-  return inspectWebp(bytes).animated;
+  const parsed = parseWebp(bytes);
+  return (
+    (parsed.vp8x !== null &&
+      (parsed.vp8x.data[0]! & VP8X_ANIMATION_FLAG) !== 0) ||
+    parsed.chunks.some(
+      ({ fourcc }) => fourcc === "ANIM" || fourcc === "ANMF",
+    )
+  );
 }
 
 export function inspectWebp(bytes: Uint8Array): WebpInspection {
@@ -870,9 +882,23 @@ export function inspectWebp(bytes: Uint8Array): WebpInspection {
   const dimensions = parsed.vp8x === null
     ? simpleImageFeatures(parsed.chunks)
     : vp8xCanvas(parsed.vp8x);
+  const exif = parsed.chunks.find(({ fourcc }) => fourcc === "EXIF");
+  let orientation: ExifOrientation = 1;
+  if (exif !== undefined) {
+    try {
+      orientation = readExifOrientation(exif.data);
+    } catch (error) {
+      throw corruptContainer(
+        `WebP EXIF orientation metadata is invalid: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
   return {
     width: dimensions.width,
     height: dimensions.height,
     animated,
+    orientation,
   };
 }

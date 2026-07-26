@@ -110,6 +110,177 @@ test("animated WebP is rejected before native decode", async ({ page }) => {
   expect(error.message).toContain("动态 WebP");
 });
 
+test("oriented PNG and WebP normalize 90-degree rotation and physical pixels", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { decodeRaster } = window.conversionHarness;
+    const concat = (...parts) => {
+      const output = new Uint8Array(
+        parts.reduce((total, part) => total + part.length, 0),
+      );
+      let offset = 0;
+      for (const part of parts) {
+        output.set(part, offset);
+        offset += part.length;
+      }
+      return output;
+    };
+    const ascii = (value) => new TextEncoder().encode(value);
+    const tiff = new Uint8Array([
+      0x49, 0x49, 0x2a, 0,
+      8, 0, 0, 0,
+      1, 0,
+      0x12, 0x01,
+      3, 0,
+      1, 0, 0, 0,
+      6, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const crc32 = (bytes) => {
+      let crc = 0xffffffff;
+      for (const byte of bytes) {
+        crc ^= byte;
+        for (let bit = 0; bit < 8; bit += 1) {
+          crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+        }
+      }
+      return (crc ^ 0xffffffff) >>> 0;
+    };
+    const pngChunk = (type, data) => {
+      const body = concat(ascii(type), data);
+      const crc = crc32(body);
+      return concat(
+        new Uint8Array([
+          data.length >>> 24,
+          (data.length >>> 16) & 0xff,
+          (data.length >>> 8) & 0xff,
+          data.length & 0xff,
+        ]),
+        body,
+        new Uint8Array([
+          crc >>> 24,
+          (crc >>> 16) & 0xff,
+          (crc >>> 8) & 0xff,
+          crc & 0xff,
+        ]),
+      );
+    };
+    const webpChunk = (fourcc, data) => concat(
+      ascii(fourcc),
+      new Uint8Array([
+        data.length & 0xff,
+        (data.length >>> 8) & 0xff,
+        (data.length >>> 16) & 0xff,
+        data.length >>> 24,
+      ]),
+      data,
+      data.length & 1 ? new Uint8Array([0]) : new Uint8Array(),
+    );
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 2;
+    canvas.height = 1;
+    canvas.getContext("2d").putImageData(new ImageData(
+      new Uint8ClampedArray([
+        0, 0, 0, 255,
+        255, 255, 255, 255,
+      ]),
+      2,
+      1,
+    ), 0, 0);
+    const toBlob = (type) => new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob === null
+          ? reject(new Error(`${type} encoding unavailable`))
+          : resolve(blob),
+        type,
+        1,
+      );
+    });
+
+    const pngBytes = new Uint8Array(
+      await (await toBlob("image/png")).arrayBuffer(),
+    );
+    const orientedPng = concat(
+      pngBytes.subarray(0, 33),
+      pngChunk("eXIf", tiff),
+      pngBytes.subarray(33),
+    );
+
+    const webpBytes = new Uint8Array(
+      await (await toBlob("image/webp")).arrayBuffer(),
+    );
+    const originalChunks = [];
+    let offset = 12;
+    while (offset < webpBytes.length) {
+      const length =
+        webpBytes[offset + 4] +
+        webpBytes[offset + 5] * 0x100 +
+        webpBytes[offset + 6] * 0x10000 +
+        webpBytes[offset + 7] * 0x1000000;
+      const end = offset + 8 + length + (length & 1);
+      const fourcc = new TextDecoder().decode(
+        webpBytes.subarray(offset, offset + 4),
+      );
+      if (fourcc !== "VP8X" && fourcc !== "EXIF") {
+        originalChunks.push(webpBytes.slice(offset, end));
+      }
+      offset = end;
+    }
+    const vp8x = new Uint8Array([
+      0x08, 0, 0, 0,
+      1, 0, 0,
+      0, 0, 0,
+    ]);
+    const webpBody = concat(
+      ascii("WEBP"),
+      webpChunk("VP8X", vp8x),
+      webpChunk("EXIF", concat(ascii("Exif"), new Uint8Array([0, 0]), tiff)),
+      ...originalChunks,
+    );
+    const orientedWebp = concat(
+      ascii("RIFF"),
+      new Uint8Array([
+        webpBody.length & 0xff,
+        (webpBody.length >>> 8) & 0xff,
+        (webpBody.length >>> 16) & 0xff,
+        webpBody.length >>> 24,
+      ]),
+      webpBody,
+    );
+
+    const png = await decodeRaster(
+      new File([orientedPng], "oriented.png", { type: "image/png" }),
+      "png",
+    );
+    const webp = await decodeRaster(
+      new File([orientedWebp], "oriented.webp", { type: "image/webp" }),
+      "webp",
+    );
+    return {
+      png: { width: png.width, height: png.height, data: [...png.data] },
+      webp: { width: webp.width, height: webp.height, data: [...webp.data] },
+    };
+  });
+
+  expect(result.png).toEqual({
+    width: 1,
+    height: 2,
+    data: [
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+    ],
+  });
+  expect(result.webp).toMatchObject({ width: 1, height: 2 });
+  expect(result.webp.data[3]).toBe(255);
+  expect(result.webp.data[7]).toBe(255);
+  expect(result.webp.data[0]).toBeLessThan(80);
+  expect(result.webp.data[1]).toBeLessThan(80);
+  expect(result.webp.data[2]).toBeLessThan(80);
+  expect(result.webp.data[4]).toBeGreaterThan(175);
+  expect(result.webp.data[5]).toBeGreaterThan(175);
+  expect(result.webp.data[6]).toBeGreaterThan(175);
+});
+
 test("real WASM encode is baseline 4:4:4 with exact ICC and independently decodable", async ({ page }) => {
   const wasmResponses = [];
   page.on("response", (response) => {

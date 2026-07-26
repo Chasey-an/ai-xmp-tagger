@@ -40,13 +40,35 @@ function fakeFile(bytes: Uint8Array, type: string): File {
 }
 
 function pngHeader(width: number, height: number): Uint8Array {
-  const bytes = new Uint8Array(24);
+  const bytes = new Uint8Array(33);
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   new DataView(bytes.buffer).setUint32(8, 13);
   bytes.set(new TextEncoder().encode("IHDR"), 12);
   new DataView(bytes.buffer).setUint32(16, width);
   new DataView(bytes.buffer).setUint32(20, height);
   return bytes;
+}
+
+function orientedPngHeader(
+  width: number,
+  height: number,
+  orientation: number,
+): Uint8Array {
+  const tiff = new Uint8Array([
+    0x49, 0x49, 0x2a, 0,
+    8, 0, 0, 0,
+    1, 0,
+    0x12, 0x01,
+    3, 0,
+    1, 0, 0, 0,
+    orientation, 0, 0, 0,
+    0, 0, 0, 0,
+  ]);
+  const chunk = new Uint8Array(12 + tiff.length);
+  new DataView(chunk.buffer).setUint32(0, tiff.length);
+  chunk.set(new TextEncoder().encode("eXIf"), 4);
+  chunk.set(tiff, 8);
+  return concatBytes(pngHeader(width, height), chunk);
 }
 
 function simpleVp8Webp(width: number, height: number): Uint8Array {
@@ -181,6 +203,7 @@ class MockOffscreenCanvas {
   readonly context = {
     fillStyle: "",
     fillRect: vi.fn(),
+    setTransform: vi.fn(),
     drawImage: vi.fn(),
     getImageData: vi.fn(() => {
       if (MockOffscreenCanvas.getImageDataFailure !== null) {
@@ -365,6 +388,81 @@ describe("decodeRaster", () => {
     ).rejects.toMatchObject({ code: "DECODE_FAILED" });
     expect(close).toHaveBeenCalledOnce();
     expect(MockOffscreenCanvas.instances).toHaveLength(0);
+  });
+
+  it("explicitly rotates raw native pixels when EXIF orientation 6 was ignored", async () => {
+    const close = vi.fn();
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({
+      width: 2,
+      height: 1,
+      close,
+    })));
+    MockOffscreenCanvas.imageData = {
+      data: new Uint8ClampedArray([
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+      ]),
+    };
+    const image = await decodeRaster(
+      fakeFile(orientedPngHeader(2, 1, 6), "image/png"),
+      "png",
+    );
+    expect(image).toMatchObject({ width: 1, height: 2 });
+    expect(MockOffscreenCanvas.instances[0]!.context.setTransform)
+      .toHaveBeenCalledWith(0, 1, -1, 0, 1, 0);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("accepts only the orientation-corrected swapped dimensions from native decode", async () => {
+    const close = vi.fn();
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({
+      width: 1,
+      height: 2,
+      close,
+    })));
+    await expect(decodeRaster(
+      fakeFile(orientedPngHeader(2, 1, 6), "image/png"),
+      "png",
+    )).resolves.toMatchObject({ width: 1, height: 2 });
+    expect(MockOffscreenCanvas.instances[0]!.context.setTransform)
+      .not.toHaveBeenCalled();
+
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({
+      width: 3,
+      height: 2,
+      close,
+    })));
+    await expect(decodeRaster(
+      fakeFile(orientedPngHeader(2, 1, 6), "image/png"),
+      "png",
+    )).rejects.toMatchObject({ code: "DECODE_FAILED" });
+  });
+
+  it("uses a raw fallback decode for same-dimension orientations", async () => {
+    const firstClose = vi.fn();
+    const rawClose = vi.fn();
+    const createImageBitmapMock = vi.fn()
+      .mockResolvedValueOnce({ width: 2, height: 1, close: firstClose })
+      .mockResolvedValueOnce({ width: 2, height: 1, close: rawClose });
+    vi.stubGlobal("createImageBitmap", createImageBitmapMock);
+
+    await decodeRaster(
+      fakeFile(orientedPngHeader(2, 1, 2), "image/png"),
+      "png",
+    );
+    expect(createImageBitmapMock).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      {
+        imageOrientation: "none",
+        colorSpaceConversion: "default",
+        premultiplyAlpha: "none",
+      },
+    );
+    expect(MockOffscreenCanvas.instances[0]!.context.setTransform)
+      .toHaveBeenCalledWith(-1, 0, 0, 1, 2, 0);
+    expect(firstClose).toHaveBeenCalledOnce();
+    expect(rawClose).toHaveBeenCalledOnce();
   });
 });
 
