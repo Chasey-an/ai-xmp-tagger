@@ -32,7 +32,7 @@ const committedOutputPath = path.join(
 const lockPath = path.join(projectDirectory, "social-card.lock.json");
 const lockedRelativePaths = [
   "social-card.html",
-  "public/images/app-home.png",
+  "public/images/browser-workbench.png",
   "scripts/capture-social-card.mjs",
   "public/images/social-card.png",
 ];
@@ -120,7 +120,7 @@ async function renderSocialCard(outputPath) {
         fontFamily: getComputedStyle(document.body).fontFamily,
         pingFangReady: document.fonts.check(
           '16px "PingFang SC"',
-          "本地批量写入与检查 XMP 标签",
+          "浏览器直接批量写入与检查 XMP",
         ),
         images: [...document.images].map((image) => ({
           complete: image.complete,
@@ -140,7 +140,7 @@ async function renderSocialCard(outputPath) {
       "PingFang SC is unavailable on this macOS capture environment",
     );
     assert.deepEqual(readiness.images, [
-      { complete: true, naturalWidth: 1440, naturalHeight: 900 },
+      { complete: true, naturalWidth: 1440, naturalHeight: 1560 },
     ]);
 
     await page.screenshot({

@@ -1,5 +1,8 @@
 node_modules
 dist
+dist-conversion
 playwright-report
 test-results
 .DS_Store
+.worktrees/
+.netlify/
