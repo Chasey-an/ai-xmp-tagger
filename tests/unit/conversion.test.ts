@@ -49,6 +49,23 @@ function pngHeader(width: number, height: number): Uint8Array {
   return bytes;
 }
 
+function emptyPngChunk(type: string): Uint8Array {
+  const bytes = new Uint8Array(12);
+  bytes.set(new TextEncoder().encode(type), 4);
+  return bytes;
+}
+
+function pngWithManyIdatChunks(count: number): Uint8Array {
+  return concatBytes(
+    pngHeader(1, 1),
+    ...Array.from(
+      { length: count },
+      () => emptyPngChunk("IDAT"),
+    ),
+    emptyPngChunk("IEND"),
+  );
+}
+
 function orientedPngHeader(
   width: number,
   height: number,
@@ -249,6 +266,25 @@ describe("official sRGB2014 profile", () => {
 });
 
 describe("decodeRaster", () => {
+  it("accepts PNGs split across more than 256 consecutive IDAT chunks", async () => {
+    const close = vi.fn();
+    const createImageBitmapMock = vi.fn(async () => ({
+      width: 1,
+      height: 1,
+      close,
+    }));
+    vi.stubGlobal("createImageBitmap", createImageBitmapMock);
+
+    await expect(
+      decodeRaster(
+        fakeFile(pngWithManyIdatChunks(300), "image/png"),
+        "png",
+      ),
+    ).resolves.toMatchObject({ width: 1, height: 1 });
+    expect(createImageBitmapMock).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("decodes with exact browser options, white-flattens alpha, and closes the bitmap", async () => {
     const events: string[] = [];
     const close = vi.fn();

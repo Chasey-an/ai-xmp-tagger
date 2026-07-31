@@ -131,6 +131,14 @@ async function readPngOrientation(
     if (!Number.isSafeInteger(chunkEnd) || chunkEnd > size) {
       throw decodeFailed("PNG 区块长度无效，无法安全读取方向信息。");
     }
+    const isImageData =
+      header[4] === 0x49 &&
+      header[5] === 0x44 &&
+      header[6] === 0x41 &&
+      header[7] === 0x54;
+    if (isImageData) {
+      return 1;
+    }
     const isExif =
       header[4] === 0x65 &&
       header[5] === 0x58 &&
