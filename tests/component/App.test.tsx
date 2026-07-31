@@ -194,7 +194,7 @@ describe("browser-local XMP workbench", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("radio", {
-        name: "转为高清 JPG 并写入标签",
+        name: "转为 JPG 并写入标签",
       }),
     ).toBeChecked();
     expect(screen.getByRole("button", { name: "开始处理" })).toBeDisabled();
@@ -507,7 +507,7 @@ describe("browser-local XMP workbench", () => {
     await userEvent.click(screen.getByRole("button", { name: "开始处理" }));
     expect(
       await screen.findByRole("cell", {
-        name: "转为高清 JPG 并写入",
+        name: "转为 JPG 并写入",
       }),
     ).toBeInTheDocument();
 
@@ -516,7 +516,7 @@ describe("browser-local XMP workbench", () => {
     );
     expect(
       screen.getByRole("cell", {
-        name: "转为高清 JPG 并写入",
+        name: "转为 JPG 并写入",
       }),
     ).toBeInTheDocument();
   });
@@ -552,7 +552,9 @@ describe("browser-local XMP workbench", () => {
     expect(
       screen.getByText("JPG 直接写入 XMP，不重新编码"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/BMP 将转为高清 JPG/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/BMP 将保持原尺寸转为 JPG/),
+    ).toBeInTheDocument();
 
     await userEvent.click(
       screen.getByRole("radio", { name: "保持原格式并写入标签" }),

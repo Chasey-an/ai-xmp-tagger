@@ -32,9 +32,9 @@ function guidance(
         message = "JPG 直接写入 XMP，不重新编码";
       } else if (image.format === "webp") {
         message =
-          "静态 WebP 将转为高清 JPG；动态 WebP 请切换“保持原格式”";
+          "静态 WebP 将保持原尺寸转为 JPG；动态 WebP 请切换“保持原格式”";
       } else {
-        message = `${formatLabel(image.format)} 将转为高清 JPG`;
+        message = `${formatLabel(image.format)} 将保持原尺寸转为 JPG`;
       }
       break;
     case "original-and-xmp":

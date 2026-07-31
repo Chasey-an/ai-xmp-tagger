@@ -304,7 +304,7 @@ function outputBlob(bytes: Uint8Array, format: XmpFormat): Blob {
 
 function successMessage(reencoded: boolean): string {
   return reencoded
-    ? "已转换为高清 JPEG，并写入及验证 XMP 标签。"
+    ? "已转换为 JPEG，并写入及验证 XMP 标签。"
     : "已写入并验证 XMP dc:subject 标签。";
 }
 
@@ -360,7 +360,7 @@ function safeMessage(error: unknown): string {
     case "DECODE_FAILED":
       return "图片解码失败，请确认文件完整并重新导出后再试。";
     case "ENCODE_FAILED":
-      return "高清 JPEG 编码失败，请重试或更换源图片。";
+      return "JPEG 编码失败，请重试或更换源图片。";
     case "VERIFY_FAILED":
       return "标签写入后的验证未通过，未生成输出文件，请重试。";
     case "INVALID_MODE":
@@ -399,7 +399,7 @@ export async function processFile(
         request.id,
         startedAt,
         "failed",
-        "BMP 不支持“保持原格式并写入标签”模式，请使用“转为高清 JPEG 并写入标签”。",
+        "BMP 不支持“保持原格式并写入标签”模式，请使用“转为 JPG 并写入标签”。",
       );
     }
     if (request.format === "bmp" && request.mode === "verify-only") {
@@ -407,7 +407,7 @@ export async function processFile(
         request.id,
         startedAt,
         "failed",
-        "BMP 不包含受支持的 XMP 标签位置，无法使用“仅检查标签”模式。请改用“转为高清 JPEG 并写入标签”模式。",
+        "BMP 不包含受支持的 XMP 标签位置，无法使用“仅检查标签”模式。请改用“转为 JPG 并写入标签”模式。",
       );
     }
 

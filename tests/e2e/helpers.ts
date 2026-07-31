@@ -61,7 +61,7 @@ export async function processUploaded(page: Page): Promise<void> {
 export async function chooseMode(
   page: Page,
   name:
-    | "转为高清 JPG 并写入标签"
+    | "转为 JPG 并写入标签"
     | "保持原格式并写入标签"
     | "只检查 XMP 标签",
 ): Promise<void> {

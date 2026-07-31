@@ -56,7 +56,7 @@ export function prepareHighQualityJpegEncoder(): Promise<void> {
     }
     throw new ProcessingError(
       "ENCODE_FAILED",
-      "高质量 JPEG 编码器初始化失败，请重试。",
+      "JPEG 编码器初始化失败，请重试。",
       { cause: error },
     );
   });
@@ -482,7 +482,7 @@ export async function encodeHighQualityJpeg(
     }
     throw new ProcessingError(
       "ENCODE_FAILED",
-      "无法生成高质量 JPEG，请重试或更换源图片。",
+      "无法生成 JPEG，请重试或更换源图片。",
       { cause: error },
     );
   }

@@ -14,8 +14,8 @@ const MODES: ReadonlyArray<{
 }> = [
   {
     value: "jpeg-and-xmp",
-    label: "转为高清 JPG 并写入标签",
-    description: "JPG 无损写入；PNG、BMP、静态 WebP 转为高质量 JPG。动态 WebP 请切换保持原格式。",
+    label: "转为 JPG 并写入标签",
+    description: "JPG 直接写入标签；PNG、BMP、静态 WebP 保持原尺寸转换为 JPG。动态 WebP 请切换保持原格式。",
   },
   {
     value: "original-and-xmp",
@@ -61,7 +61,7 @@ export function ModeSelector({
       </div>
       {hasBmp && value !== "jpeg-and-xmp" ? (
         <p class="mode-note">
-          提醒：BMP 在此模式下会逐个显示为不支持；可改用“转为高清 JPG 并写入标签”。
+          提醒：BMP 在此模式下会逐个显示为不支持；可改用“转为 JPG 并写入标签”。
         </p>
       ) : null}
     </fieldset>

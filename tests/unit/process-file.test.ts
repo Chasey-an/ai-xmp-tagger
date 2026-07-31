@@ -246,7 +246,7 @@ describe("processFile mode matrix", () => {
       reencoded: false,
     });
     expect(result.message).toMatch(/BMP.*检查|检查.*BMP/);
-    expect(result.message).toContain("转为高清 JPEG 并写入标签");
+    expect(result.message).toContain("转为 JPG 并写入标签");
   });
 });
 

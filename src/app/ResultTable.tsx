@@ -8,7 +8,7 @@ interface ResultTableProps {
 }
 
 const MODE_LABELS: Record<ProcessingMode, string> = {
-  "jpeg-and-xmp": "转为高清 JPG 并写入",
+  "jpeg-and-xmp": "转为 JPG 并写入",
   "original-and-xmp": "保持原格式并写入",
   "verify-only": "只检查 XMP",
 };

@@ -31,9 +31,12 @@ describe("browser-local product guidance", () => {
   it("documents all three modes with the exact format matrix", async () => {
     const guidance = `${await source("src/app/HelpSections.tsx")}\n${await source("README.md")}`;
 
-    expect(guidance).toMatch(/转为高清 JPG/u);
-    expect(guidance).toMatch(/JPG 直接写入/u);
-    expect(guidance).toMatch(/PNG、BMP、静态 WebP 转为高质量 JPG/u);
+    expect(guidance).toMatch(/转为 JPG/u);
+    expect(guidance).toMatch(/JPG 直接写入标签/u);
+    expect(guidance).toMatch(
+      /PNG、BMP、静态 WebP 保持原尺寸转换为 JPG/u,
+    );
+    expect(guidance).not.toMatch(/高清 JPG|高质量 JPG/u);
     expect(guidance).toMatch(/动态 WebP.*(?:拒绝|不支持)/u);
     expect(guidance).toMatch(/保持原格式/u);
     expect(guidance).toMatch(/JPG、PNG、静态或动态 WebP.*保持原格式/u);

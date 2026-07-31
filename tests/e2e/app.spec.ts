@@ -23,7 +23,7 @@ test("renders the local-only workbench with the documented default mode", async 
     }),
   ).toBeVisible();
   await expect(
-    page.getByRole("radio", { name: "转为高清 JPG 并写入标签" }),
+    page.getByRole("radio", { name: "转为 JPG 并写入标签" }),
   ).toBeChecked();
   await expect(page.getByText("图片只在当前浏览器处理，不会上传服务器")).toBeVisible();
   await expect(page.locator("main")).toHaveCount(1);
