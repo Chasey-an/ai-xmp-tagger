@@ -19,7 +19,7 @@
     "capture:social:check": "node scripts/capture-social-card.mjs --check"
   },
   "devDependencies": {
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.62.1",
     "@preact/preset-vite": "2.10.6",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/preact": "3.2.4",
