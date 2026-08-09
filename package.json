@@ -33,6 +33,6 @@
     "@jsquash/jpeg": "1.6.0",
     "@xmldom/xmldom": "0.9.10",
     "client-zip": "2.5.0",
-    "preact": "10.29.7"
+    "preact": "10.29.8"
   }
 }
